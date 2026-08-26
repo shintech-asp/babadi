@@ -1,0 +1,40 @@
+[    1353ms] [WARNING] registerExtension() from dart:developer is only supported in build/run/test environments where the developer event method hooks have been set by package:dwds v11.1.0 or higher. @ http://localhost:3000/dart_sdk.js:56813
+[   14986ms] [LOG] ══╡ EXCEPTION CAUGHT BY WIDGETS LIBRARY ╞═══════════════════════════════════════════════════════════ @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG] The following _TypeError was thrown building ListingDetailScreen(dirty, state: @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG] _ListingDetailScreenState#643d6): @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG] TypeError: "8500.00": type 'String' is not a subtype of type 'num?' @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG]  @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG] The relevant error-causing widget was: @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG]   ListingDetailScreen @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG]   ListingDetailScreen:file:///C:/Users/Isystem/pestify_flutter/lib/core/router/app_router.dart:218:18 @ http://localhost:3000/dart_sdk.js:33758
+[   14987ms] [LOG]  @ http://localhost:3000/dart_sdk.js:33758
+[   14988ms] [LOG] When the exception was thrown, this was the stack: @ http://localhost:3000/dart_sdk.js:33758
+[   14988ms] [LOG] dart-sdk/lib/_internal/js_dev_runtime/private/ddc_runtime/errors.dart 266:3             throw_ @ http://localhost:3000/dart_sdk.js:33758
+[   14988ms] [LOG] dart-sdk/lib/_internal/js_dev_runtime/private/profile.dart 117:39                       _asNumQ @ http://localhost:3000/dart_sdk.js:33758
+[   14988ms] [LOG] dart-sdk/lib/_internal/js_dev_runtime/private/ddc_runtime/operations.dart 316:9         _installSpecializedAsCheck @ http://localhost:3000/dart_sdk.js:33758
+[   14988ms] [LOG] package:pestify_flutter/features/seeker/screens/listing_detail_screen.dart.js 1677:102  build @ http://localhost:3000/dart_sdk.js:33758
+[   14988ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 213262:25                     build @ http://localhost:3000/dart_sdk.js:33758
+[   14988ms] [LOG] package:flutter_riverpod/src/framework.dart.js 673:22                                   build @ http://localhost:3000/dart_sdk.js:33758
+[   14989ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 202133:22                     performRebuild @ http://localhost:3000/dart_sdk.js:33758
+[   14989ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 213296:13                     performRebuild @ http://localhost:3000/dart_sdk.js:33758
+[   14989ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 95212:14                      rebuild @ http://localhost:3000/dart_sdk.js:33758
+[   14989ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 212392:17                     [_tryRebuild] @ http://localhost:3000/dart_sdk.js:33758
+[   14989ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 212427:34                     [_flushDirtyElements] @ http://localhost:3000/dart_sdk.js:33758
+[   14989ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 212646:44                     buildScope @ http://localhost:3000/dart_sdk.js:33758
+[   14989ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 216488:43                     drawFrame @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] package:flutter/src/cupertino/text_form_field_row.dart.js 217536:12                     [_handlePersistentFrameCallback] @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] dart-sdk/lib/_internal/js_dev_runtime/private/ddc_runtime/operations.dart 117:77        tear @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] package:flutter/src/scheduler/binding.dart.js 946:9                                     [_invokeFrameCallback] @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] package:flutter/src/scheduler/binding.dart.js 905:37                                    handleDrawFrame @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] package:flutter/src/scheduler/binding.dart.js 824:12                                    [_handleDrawFrame] @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] dart-sdk/lib/_internal/js_dev_runtime/private/ddc_runtime/operations.dart 117:77        tear @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] lib/_engine/engine/platform_dispatcher.dart 1312:5                                      invoke @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] lib/_engine/engine/platform_dispatcher.dart 255:5                                       invokeOnDrawFrame @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] lib/_engine/engine/frame_service.dart 189:32                                            [_renderFrame] @ http://localhost:3000/dart_sdk.js:33758
+[   14990ms] [LOG] lib/_engine/engine/frame_service.dart 101:9                                             <fn> @ http://localhost:3000/dart_sdk.js:33758
+[   14991ms] [LOG] dart-sdk/lib/async/zone.dart 1849:54                                                    runUnary @ http://localhost:3000/dart_sdk.js:33758
+[   14991ms] [LOG] dart-sdk/lib/async/zone.dart 1804:26                                                    <fn> @ http://localhost:3000/dart_sdk.js:33758
+[   14991ms] [LOG] dart-sdk/lib/_internal/js_dev_runtime/patch/js_allow_interop_patch.dart 224:27          _callDartFunctionFast1 @ http://localhost:3000/dart_sdk.js:33758
+[   14991ms] [LOG]  @ http://localhost:3000/dart_sdk.js:33758
+[   14991ms] [LOG] ════════════════════════════════════════════════════════════════════════════════════════════════════ @ http://localhost:3000/dart_sdk.js:33758
+[   66545ms] [WARNING] registerExtension() from dart:developer is only supported in build/run/test environments where the developer event method hooks have been set by package:dwds v11.1.0 or higher. @ http://localhost:3000/dart_sdk.js:56813

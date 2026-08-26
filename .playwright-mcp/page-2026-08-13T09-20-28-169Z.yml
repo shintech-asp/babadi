@@ -1,0 +1,146 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link " Pestify Pest Control Experts" [ref=e5] [cursor=pointer]:
+        - /url: /pestify/index.php
+        - generic [ref=e6]:
+          - generic [ref=e7]: 
+          - generic [ref=e10]:
+            - generic [ref=e11]: Pestify
+            - generic [ref=e12]: Pest Control Experts
+      - list [ref=e13]:
+        - listitem [ref=e14]:
+          - link " Find Services" [ref=e15] [cursor=pointer]:
+            - /url: /pestify/browse/listings.php
+            - generic [ref=e16]: 
+            - text: Find Services
+        - listitem [ref=e17]:
+          - link " Providers" [ref=e18] [cursor=pointer]:
+            - /url: /pestify/seeker/providers.php
+            - generic [ref=e19]: 
+            - text: Providers
+        - listitem [ref=e20]:
+          - link " Login" [ref=e21] [cursor=pointer]:
+            - /url: /pestify/auth/login.php
+            - generic [ref=e22]: 
+            - text: Login
+        - listitem [ref=e23]:
+          - link " Sign Up" [ref=e24] [cursor=pointer]:
+            - /url: /pestify/auth/register.php
+            - generic [ref=e25]: 
+            - text: Sign Up
+      - text: 
+  - generic [ref=e27]:
+    - generic [ref=e29]:
+      - heading "Welcome Back to Pestify!" [level=1] [ref=e30]
+      - paragraph [ref=e31]: Sign in to access your account and connect with professional pest control services.
+    - generic [ref=e33]:
+      - heading "Login to Your Account" [level=2] [ref=e34]
+      - generic [ref=e35]:
+        - generic [ref=e36]:
+          - generic [ref=e37]: Email Address or Username *
+          - textbox "Enter your email or admin username" [ref=e38]
+        - generic [ref=e39]:
+          - generic [ref=e40]: Password *
+          - textbox "Enter your password" [ref=e41]
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - checkbox "Remember me" [ref=e44] [cursor=pointer]
+            - generic [ref=e45]: Remember me
+          - link "Forgot password?" [ref=e46] [cursor=pointer]:
+            - /url: /pestify/auth/forgot-password.php
+        - button "Login to Account" [ref=e47] [cursor=pointer]
+      - generic [ref=e48]: OR
+      - generic [ref=e49]:
+        - paragraph [ref=e50]:
+          - text: Don't have an account?
+          - link "Create Account" [ref=e51] [cursor=pointer]:
+            - /url: /pestify/auth/register.php
+        - paragraph [ref=e52]:
+          - link " Home" [ref=e53] [cursor=pointer]:
+            - /url: /pestify/index.php
+            - generic [ref=e54]: 
+            - text: Home
+  - contentinfo [ref=e55]:
+    - generic [ref=e56]:
+      - generic [ref=e57]:
+        - generic [ref=e58]:
+          - generic [ref=e59]:
+            - generic [ref=e60]:
+              - generic [ref=e61]: 
+              - generic [ref=e63]:
+                - generic [ref=e64]: Pestify
+                - generic [ref=e65]: Professional Pest Control
+            - paragraph [ref=e66]: Your trusted platform for connecting with professional pest control services. Safe, reliable, and effective solutions.
+          - generic [ref=e67]:
+            - link "" [ref=e68] [cursor=pointer]:
+              - /url: "#"
+            - link "" [ref=e70] [cursor=pointer]:
+              - /url: "#"
+            - link "" [ref=e72] [cursor=pointer]:
+              - /url: "#"
+            - link "" [ref=e74] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=e76]:
+          - heading "For Homeowners" [level=3] [ref=e77]
+          - list [ref=e78]:
+            - listitem [ref=e79]:
+              - link "Find Pest Control Services" [ref=e80] [cursor=pointer]:
+                - /url: /pestify/browse/listings.php
+            - listitem [ref=e81]:
+              - link "Browse Companies" [ref=e82] [cursor=pointer]:
+                - /url: /pestify/seeker/providers.php
+            - listitem [ref=e83]:
+              - link "Sign Up as Homeowner" [ref=e84] [cursor=pointer]:
+                - /url: /pestify/auth/register.php?type=seeker
+            - listitem [ref=e85]:
+              - link "Login to Account" [ref=e86] [cursor=pointer]:
+                - /url: /pestify/auth/login.php
+            - listitem [ref=e87]:
+              - link "My Service Requests" [ref=e88] [cursor=pointer]:
+                - /url: /pestify/seeker/my-requests.php
+        - generic [ref=e89]:
+          - heading "For Companies" [level=3] [ref=e90]
+          - list [ref=e91]:
+            - listitem [ref=e92]:
+              - link "Register Your Company" [ref=e93] [cursor=pointer]:
+                - /url: /pestify/auth/register.php?type=provider
+            - listitem [ref=e94]:
+              - link "Provider Dashboard" [ref=e95] [cursor=pointer]:
+                - /url: /pestify/provider/providers-dashboard.php
+            - listitem [ref=e96]:
+              - link "Manage Services" [ref=e97] [cursor=pointer]:
+                - /url: /pestify/provider/services.php
+            - listitem [ref=e98]:
+              - link "View Competitors" [ref=e99] [cursor=pointer]:
+                - /url: /pestify/seeker/providers.php
+            - listitem [ref=e100]:
+              - link "Company Profile" [ref=e101] [cursor=pointer]:
+                - /url: /pestify/profile.php
+        - generic [ref=e102]:
+          - heading "Support" [level=3] [ref=e103]
+          - list [ref=e104]:
+            - listitem [ref=e105]:
+              - link "Contact Us" [ref=e106] [cursor=pointer]:
+                - /url: /pestify/contact.php
+            - listitem [ref=e107]:
+              - link "Help & FAQ" [ref=e108] [cursor=pointer]:
+                - /url: /pestify/faq.php
+            - listitem [ref=e109]:
+              - link "Terms of Service" [ref=e110] [cursor=pointer]:
+                - /url: /pestify/terms.php
+            - listitem [ref=e111]:
+              - link "Privacy Policy" [ref=e112] [cursor=pointer]:
+                - /url: /pestify/privacy.php
+            - listitem [ref=e113]:
+              - link "Safety Guidelines" [ref=e114] [cursor=pointer]:
+                - /url: /pestify/safety.php
+      - generic [ref=e115]:
+        - paragraph [ref=e116]: © 2026 Pestify. All rights reserved. Pest control services are provided by independent professionals.
+        - paragraph [ref=e117]:
+          - generic [ref=e118]: 
+          - text: Licensed & Insured Providers |
+          - generic [ref=e119]: 
+          - text: Quality Guaranteed |
+          - generic [ref=e120]: 
+          - text: 24/7 Support

@@ -1,0 +1,13 @@
+- generic [ref=f4e4]:
+  - generic:
+    - generic:
+      - generic:
+        - dialog:
+          - generic:
+            - button "Back" [active] [ref=f4e64]
+            - heading "Test1 Test1 Provider" [level=2] [ref=f4e65]
+          - generic:
+            - group:
+              - generic [ref=f4e66]: August 12, 2026 hey 2:48 PM
+          - textbox "Type a message…" [ref=f4e68]
+          - button [ref=f4e69]

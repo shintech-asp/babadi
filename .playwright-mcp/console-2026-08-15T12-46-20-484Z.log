@@ -1,0 +1,4 @@
+[    4306ms] [WARNING] registerExtension() from dart:developer is only supported in build/run/test environments where the developer event method hooks have been set by package:dwds v11.1.0 or higher. @ http://localhost:3000/dart_sdk.js:56813
+[  120797ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost/pestify/api/v1/seeker/bookings/store.php:0
+[  126255ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost/pestify/api/v1/seeker/bookings/store.php:0
+[  138349ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost/pestify/api/v1/messages/send.php:0

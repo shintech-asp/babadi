@@ -1,0 +1,17 @@
+- generic [ref=f1e5]:
+  - generic:
+    - generic:
+      - generic:
+        - dialog:
+          - generic:
+            - button [active] [ref=f1e36]
+            - heading "Booking Details" [level=2] [ref=f1e37]
+            - button "Refresh" [ref=f1e38]
+          - generic:
+            - group:
+              - group "Test Service 101 Test Company 1":
+                - generic [ref=f1e39]: Completed
+              - generic [ref=f1e41]: Date August 16, 2026 Time 12:00 PM Address Panama Street, Carmel Heights, Sampaloc 3, Sampaloc, Dasmariñas, Cavite, Calabarzon, 4114, Philippines Payment FULL PAYMENT
+              - generic [ref=f1e43]: PAYMENT SUMMARY Total Price ₱20,000.00 Amount Paid ₱20,000.00 Remaining Balance ₱0.00
+              - generic [ref=f1e45]: BOOKING TIMELINE Pending Accepted Preparing Starting In Progress Awaiting Payment Awaiting Your Confirmation Completed CURRENT
+              - button "Leave a Review" [ref=f1e47]

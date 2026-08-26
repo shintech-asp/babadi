@@ -1,0 +1,133 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - complementary [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - heading [level=2] [ref=f1e5]:
+          - generic [ref=f1e6]: 
+          - text: Pestify
+        - paragraph [ref=f1e7]: Provider Portal
+      - list [ref=f1e8]:
+        - listitem [ref=f1e9]:
+          - link [ref=f1e10] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php
+            - generic [ref=f1e11]: 
+            - text: Dashboard
+        - listitem [ref=f1e12]:
+          - link [ref=f1e13] [cursor=pointer]:
+            - /url: /pestify/provider/services.php
+            - generic [ref=f1e14]: 
+            - text: My Services
+        - listitem [ref=f1e15]:
+          - link [ref=f1e16] [cursor=pointer]:
+            - /url: /pestify/provider/service-requests.php
+            - generic [ref=f1e17]: 
+            - text: Requests
+            - generic [ref=f1e18]: "1"
+        - listitem [ref=f1e19]:
+          - link [ref=f1e20] [cursor=pointer]:
+            - /url: /pestify/messages.php
+            - generic [ref=f1e21]: 
+            - text: Messages
+        - listitem [ref=f1e22]:
+          - link [ref=f1e23] [cursor=pointer]:
+            - /url: /pestify/profile.php
+            - generic [ref=f1e24]: 
+            - text: Profile
+        - listitem [ref=f1e25]:
+          - link [ref=f1e26] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php?view=settings#dashboard-settings
+            - generic [ref=f1e27]: 
+            - text: Settings
+        - listitem [ref=f1e28]:
+          - link [ref=f1e29] [cursor=pointer]:
+            - /url: /pestify/auth/logout.php
+            - generic [ref=f1e30]: 
+            - text: Logout
+      - generic [ref=f1e35]:
+        - heading [level=4] [ref=f1e36]: Test Company 1
+        - paragraph [ref=f1e37]: shinnny25@gmail.com
+    - main [ref=f1e38]:
+      - generic [ref=f1e39]:
+        - generic [ref=f1e40]:
+          - heading [level=1] [ref=f1e41]: Welcome back, Test1!
+          - paragraph [ref=f1e42]: Thursday, August 13, 2026
+        - generic [ref=f1e43]:
+          - link [ref=f1e44] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php?view=settings#dashboard-settings
+            - generic [ref=f1e45]: 
+            - text: Settings
+          - link [ref=f1e46] [cursor=pointer]:
+            - /url: ../provider-portal/direct-entry.php
+            - generic [ref=f1e47]: 
+            - generic [ref=f1e49]:
+              - generic [ref=f1e50]: HR & Finance
+              - text: Management System
+            - generic [ref=f1e51]: 
+      - generic [ref=f1e52]:
+        - generic [ref=f1e53] [cursor=pointer]:
+          - generic [ref=f1e54]: 
+          - generic [ref=f1e56]:
+            - heading [level=3] [ref=f1e57]: "1"
+            - paragraph [ref=f1e58]: Total Services
+        - generic [ref=f1e59] [cursor=pointer]:
+          - generic [ref=f1e60]: 
+          - generic [ref=f1e62]:
+            - heading [level=3] [ref=f1e63]: "0"
+            - paragraph [ref=f1e64]: Pending Requests
+        - generic [ref=f1e65] [cursor=pointer]:
+          - generic [ref=f1e66]: 
+          - generic [ref=f1e68]:
+            - heading [level=3] [ref=f1e69]: "1"
+            - paragraph [ref=f1e70]: Completed Jobs
+        - generic [ref=f1e71] [cursor=pointer]:
+          - generic [ref=f1e72]: $
+          - generic [ref=f1e74]:
+            - heading [level=3] [ref=f1e75]: ₱20,000.00
+            - paragraph [ref=f1e76]: Total Revenue
+      - generic [ref=f1e77]:
+        - generic [ref=f1e78]:
+          - heading [level=2] [ref=f1e79]:
+            - generic [ref=f1e80]: 
+            - text: Recent Service Requests
+            - generic [ref=f1e81]: 1 new
+          - link [ref=f1e82] [cursor=pointer]:
+            - /url: /pestify/provider/service-requests.php
+            - generic [ref=f1e83]: 
+            - text: View All
+        - table [ref=f1e85]:
+          - rowgroup [ref=f1e86]:
+            - row [ref=f1e87]:
+              - columnheader [ref=f1e88]: ID
+              - columnheader [ref=f1e89]: Customer
+              - columnheader [ref=f1e90]: Service
+              - columnheader [ref=f1e91]: Date
+              - columnheader [ref=f1e92]: Status
+              - columnheader [ref=f1e93]: Price
+              - columnheader [ref=f1e94]: Action
+          - rowgroup [ref=f1e95]:
+            - row [ref=f1e96]:
+              - cell [ref=f1e97]:
+                - strong [ref=f1e98]: "#38"
+                - generic [ref=f1e99]:
+                  - generic [ref=f1e100]: 
+                  - text: Availed
+              - cell [ref=f1e101]: Sheen Russel Castillo
+              - cell [ref=f1e103]: Test Service 101
+              - cell [ref=f1e104]: Aug 12, 2026
+              - cell [ref=f1e105]:
+                - generic [ref=f1e106]: Completed
+              - cell [ref=f1e107]:
+                - strong [ref=f1e108]: ₱20,000.00
+              - cell [ref=f1e109]:
+                - link [ref=f1e110] [cursor=pointer]:
+                  - /url: /pestify/provider/service-requests.php
+                  - generic [ref=f1e111]: 
+                  - text: View
+  - button [ref=f1e112] [cursor=pointer]:
+    - generic [ref=f1e113]: 
+    - text: Guide
+  - text:                 
+  - dialog [active] [ref=f1e115]:
+    - heading "Login successful" [level=2] [ref=f1e123]
+    - generic [ref=f1e124]: Welcome back, Test1!
+    - text: "!"

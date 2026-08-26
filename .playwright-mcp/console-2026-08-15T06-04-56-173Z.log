@@ -1,0 +1,83 @@
+[  128984ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:3000/#/login:0
+[  131914ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost/pestify/api/v1/auth/login.php:0
+[  134697ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost/pestify/api/v1/auth/login.php:0
+[  145159ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost/pestify/api/v1/auth/login.php:0
+[  153337ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) @ http://localhost:3000/#/login:0
+[  167842ms] DartError: setState() callback argument returned a Future.
+The setState() method on _BookingTabViewState#01eea was called with a closure or method that returned a Future. Maybe it is marked as "async".
+Instead of performing asynchronous work inside a call to setState(), first execute the work (without updating the widget state), and then synchronously update the state inside a call to setState().
+    at Object.throw_ [as throw] (http://localhost:3000/dart_sdk.js:4469:11)
+    at http://localhost:3000/packages/flutter/src/cupertino/text_form_field_row.dart.js:49180:21
+    at my_bookings_screen._BookingTabViewState.new.setState (http://localhost:3000/packages/flutter/src/cupertino/text_form_field_row.dart.js:49183:80)
+    at http://localhost:3000/packages/pestify_flutter/features/seeker/screens/my_bookings_screen.dart.js:1436:20
+    at http://localhost:3000/dart_sdk.js:45735:13
+    at http://localhost:3000/dart_sdk.js:45745:7
+    at Object._asyncStartSync (http://localhost:3000/dart_sdk.js:45693:5)
+    at [_refresh] (http://localhost:3000/packages/pestify_flutter/features/seeker/screens/my_bookings_screen.dart.js:1441:20)
+    at tear (http://localhost:3000/dart_sdk.js:4514:46)
+    at ink_well._InkResponseState.new.handleTap (http://localhost:3000/packages/flutter/src/material/time.dart.js:85483:35)
+    at tear (http://localhost:3000/dart_sdk.js:4514:46)
+    at tap.TapGestureRecognizer.new.invokeCallback (http://localhost:3000/packages/flutter/src/gestures/recognizer.dart.js:271:18)
+    at tap.TapGestureRecognizer.new.handleTapUp (http://localhost:3000/packages/flutter/src/gestures/tap.dart.js:592:20)
+    at [_checkUp] (http://localhost:3000/packages/flutter/src/gestures/tap.dart.js:332:12)
+    at tap.TapGestureRecognizer.new.acceptGesture (http://localhost:3000/packages/flutter/src/gestures/tap.dart.js:307:23)
+    at arena.GestureArenaManager.new.sweep (http://localhost:3000/packages/flutter/src/gestures/arena.dart.js:261:31)
+    at binding$4.WidgetsFlutterBinding.new.handleEvent (http://localhost:3000/packages/flutter/src/gestures/binding.dart.js:443:27)
+    at binding$4.WidgetsFlutterBinding.new.dispatchEvent (http://localhost:3000/packages/flutter/src/gestures/binding.dart.js:427:24)
+    at binding$4.WidgetsFlutterBinding.new.dispatchEvent (http://localhost:3000/packages/flutter/src/cupertino/text_form_field_row.dart.js:217523:13)
+    at [_handlePointerEventImmediately] (http://localhost:3000/packages/flutter/src/gestures/binding.dart.js:400:14)
+    at binding$4.WidgetsFlutterBinding.new.handlePointerEvent (http://localhost:3000/packages/flutter/src/gestures/binding.dart.js:371:43)
+    at [_flushPointerEventQueue] (http://localhost:3000/packages/flutter/src/gestures/binding.dart.js:360:14)
+    at [_handlePointerDataPacket] (http://localhost:3000/packages/flutter/src/gestures/binding.dart.js:335:40)
+    at tear (http://localhost:3000/dart_sdk.js:4514:46)
+    at Object.invoke1 (http://localhost:3000/dart_sdk.js:210467:7)
+    at _engine.EnginePlatformDispatcher.new.invokeOnPointerDataPacket (http://localhost:3000/dart_sdk.js:180536:15)
+    at [_sendToFramework] (http://localhost:3000/dart_sdk.js:183012:49)
+    at _engine.ClickDebouncer.new.onPointerData (http://localhost:3000/dart_sdk.js:182921:31)
+    at _engine._PointerAdapter.new.tear (http://localhost:3000/dart_sdk.js:4514:46)
+    at http://localhost:3000/dart_sdk.js:183728:30
+    at http://localhost:3000/dart_sdk.js:183656:9
+    at loggedHandler (http://localhost:3000/dart_sdk.js:183228:11)
+    at _RootZone.runUnary (http://localhost:3000/dart_sdk.js:44701:59)
+    at http://localhost:3000/dart_sdk.js:44671:34
+    at Object._callDartFunctionFast1 (http://localhost:3000/dart_sdk.js:70647:14)
+    at ret (http://localhost:3000/dart_sdk.js:70565:22)
+[  167878ms] DartError: Exception: Could not load bookings. Pull down to retry.
+    at Object.throw_ [as throw] (http://localhost:3000/dart_sdk.js:4469:11)
+    at http://localhost:3000/packages/pestify_flutter/features/seeker/screens/my_bookings_screen.dart.js:1395:27
+    at http://localhost:3000/dart_sdk.js:45735:13
+    at http://localhost:3000/dart_sdk.js:45745:7
+    at http://localhost:3000/dart_sdk.js:45715:7
+    at _RootZone.runBinary (http://localhost:3000/dart_sdk.js:44705:59)
+    at async._FutureListener.thenAwait.handleError (http://localhost:3000/dart_sdk.js:39582:31)
+    at handleError (http://localhost:3000/dart_sdk.js:40229:49)
+    at _Future._propagateToListeners (http://localhost:3000/dart_sdk.js:40255:15)
+    at [_completeErrorObject] (http://localhost:3000/dart_sdk.js:40085:21)
+    at [_completeError] (http://localhost:3000/dart_sdk.js:40088:33)
+    at async._AsyncAwaitCompleter.new.completeError (http://localhost:3000/dart_sdk.js:45140:38)
+    at Object._asyncRethrow (http://localhost:3000/dart_sdk.js:45707:15)
+    at http://localhost:3000/packages/pestify_flutter/features/seeker/seeker_api.dart.js:501:28
+    at http://localhost:3000/dart_sdk.js:45735:13
+    at http://localhost:3000/dart_sdk.js:45745:7
+    at http://localhost:3000/dart_sdk.js:45712:42
+    at _RootZone.runUnary (http://localhost:3000/dart_sdk.js:44701:59)
+    at async._FutureListener.thenAwait.handleValue (http://localhost:3000/dart_sdk.js:39571:27)
+    at handleValueCallback (http://localhost:3000/dart_sdk.js:40213:47)
+    at _Future._propagateToListeners (http://localhost:3000/dart_sdk.js:40251:15)
+    at [_completeWithValue] (http://localhost:3000/dart_sdk.js:40070:21)
+    at async._AsyncAwaitCompleter.new.complete (http://localhost:3000/dart_sdk.js:45134:42)
+    at Object._asyncReturn (http://localhost:3000/dart_sdk.js:45703:15)
+    at http://localhost:3000/packages/dio/src/interceptors/log.dart.js:1881:28
+    at http://localhost:3000/dart_sdk.js:45735:13
+    at http://localhost:3000/dart_sdk.js:45745:7
+    at http://localhost:3000/dart_sdk.js:45712:42
+    at _RootZone.runUnary (http://localhost:3000/dart_sdk.js:44701:59)
+    at async._FutureListener.thenAwait.handleValue (http://localhost:3000/dart_sdk.js:39571:27)
+    at handleValueCallback (http://localhost:3000/dart_sdk.js:40213:47)
+    at _Future._propagateToListeners (http://localhost:3000/dart_sdk.js:40251:15)
+    at [_completeWithValue] (http://localhost:3000/dart_sdk.js:40070:21)
+    at async._AsyncCallbackEntry.new.callback (http://localhost:3000/dart_sdk.js:40116:33)
+    at Object._microtaskLoop (http://localhost:3000/dart_sdk.js:46095:13)
+    at Object._startMicrotaskLoop (http://localhost:3000/dart_sdk.js:46102:13)
+    at tear (http://localhost:3000/dart_sdk.js:4514:46)
+    at http://localhost:3000/dart_sdk.js:40554:9

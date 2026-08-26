@@ -1,0 +1,66 @@
+RewriteEngine On
+
+# Pass Authorization header to PHP (stripped by default on some Apache/XAMPP setups)
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization},L]
+
+# Static assets requested from moved subfolders should still resolve to the
+# shared root-level asset directories.
+RewriteRule ^(?:auth|browse|provider|seeker|system)/assets/(.*)$ assets/$1 [L,NC]
+RewriteRule ^(?:auth|browse|provider|seeker|system)/uploads/(.*)$ uploads/$1 [L,NC]
+RewriteRule ^(?:auth|browse|provider|seeker|system)/api/(.*)$ api/$1 [L,NC]
+
+# Compatibility fallback: if a moved page still links to a root-level PHP file
+# using a relative path, resolve it back to the app root instead of 404ing.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(?:auth|browse|provider|seeker|system)/(.*\.php)$ $1 [L,NC]
+
+# Seeker routes
+RewriteRule ^avail-service-process\.php$ seeker/avail-service-process.php [L,NC]
+RewriteRule ^booking-details\.php$ seeker/booking-details.php [L,NC]
+RewriteRule ^get-available-times\.php$ seeker/get-available-times.php [L,NC]
+RewriteRule ^messages-seeker\.php$ seeker/messages-seeker.php [L,NC]
+RewriteRule ^my-requests\.php$ seeker/my-requests.php [L,NC]
+RewriteRule ^payment-cancel\.php$ seeker/payment-cancel.php [L,NC]
+RewriteRule ^payment-failed\.php$ seeker/payment-failed.php [L,NC]
+RewriteRule ^payment-redirect\.php$ seeker/payment-redirect.php [L,NC]
+RewriteRule ^payment-success\.php$ seeker/payment-success.php [L,NC]
+RewriteRule ^provider-details\.php$ seeker/provider-details.php [L,NC]
+RewriteRule ^providers\.php$ seeker/providers.php [L,NC]
+RewriteRule ^request-service\.php$ seeker/request-service.php [L,NC]
+RewriteRule ^seeker-booking-calendar\.php$ seeker/seeker-booking-calendar.php [L,NC]
+RewriteRule ^setup-address\.php$ seeker/setup-address.php [L,NC]
+RewriteRule ^submit-feedback\.php$ seeker/submit-feedback.php [L,NC]
+
+# Provider routes
+RewriteRule ^create-listing\.php$ provider/create-listing.php [L,NC]
+RewriteRule ^messages-provider\.php$ provider/messages-provider.php [L,NC]
+RewriteRule ^my-services\.php$ provider/my-services.php [L,NC]
+RewriteRule ^provider-payment-settings\.php$ provider/provider-payment-settings.php [L,NC]
+RewriteRule ^provider-setup\.php$ provider/provider-setup.php [L,NC]
+RewriteRule ^providers-dashboard\.php$ provider/providers-dashboard.php [L,NC]
+RewriteRule ^service-requests\.php$ provider/service-requests.php [L,NC]
+RewriteRule ^services\.php$ provider/services.php [L,NC]
+RewriteRule ^update-booking-status\.php$ provider/update-booking-status.php [L,NC]
+RewriteRule ^verify-service\.php$ provider/verify-service.php [L,NC]
+
+# Auth routes
+RewriteRule ^forgot-password\.php$ auth/forgot-password.php [L,NC]
+RewriteRule ^login-backup\.php$ auth/login-backup.php [L,NC]
+RewriteRule ^login\.php$ auth/login.php [L,NC]
+RewriteRule ^logout\.php$ auth/logout.php [L,NC]
+RewriteRule ^register\.php$ auth/register.php [L,NC]
+RewriteRule ^reset-password\.php$ auth/reset-password.php [L,NC]
+RewriteRule ^verify\.php$ auth/verify.php [L,NC]
+
+# Browse routes
+RewriteRule ^listing-details\.php$ browse/listing-details.php [L,NC]
+RewriteRule ^listings\.php$ browse/listings.php [L,NC]
+RewriteRule ^providers-listings\.php$ browse/providers-listings.php [L,NC]
+
+# System routes
+RewriteRule ^check-db\.php$ system/check-db.php [L,NC]
+RewriteRule ^install\.php$ system/install.php [L,NC]
+RewriteRule ^paymongo-webhook\.php$ system/paymongo-webhook.php [L,NC]
+RewriteRule ^send_email\.php$ system/send_email.php [L,NC]
+RewriteRule ^setup\.php$ system/setup.php [L,NC]

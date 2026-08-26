@@ -1,0 +1,396 @@
+- generic [active] [ref=f5e1]:
+  - banner [ref=f5e2]:
+    - navigation [ref=f5e3]:
+      - link " Pestify Pest Control Experts" [ref=f5e5] [cursor=pointer]:
+        - /url: /pestify/index.php
+        - generic [ref=f5e6]:
+          - generic [ref=f5e7]: 
+          - generic [ref=f5e10]:
+            - generic [ref=f5e11]: Pestify
+            - generic [ref=f5e12]: Pest Control Experts
+      - list [ref=f5e13]:
+        - listitem [ref=f5e14]:
+          - link " Find Services" [ref=f5e15] [cursor=pointer]:
+            - /url: /pestify/browse/listings.php
+            - generic [ref=f5e16]: 
+            - text: Find Services
+        - listitem [ref=f5e17]:
+          - link " Providers" [ref=f5e18] [cursor=pointer]:
+            - /url: /pestify/seeker/providers.php
+            - generic [ref=f5e19]: 
+            - text: Providers
+        - listitem [ref=f5e20]:
+          - link " Login" [ref=f5e21] [cursor=pointer]:
+            - /url: /pestify/auth/login.php
+            - generic [ref=f5e22]: 
+            - text: Login
+        - listitem [ref=f5e23]:
+          - link " Sign Up" [ref=f5e24] [cursor=pointer]:
+            - /url: /pestify/auth/register.php
+            - generic [ref=f5e25]: 
+            - text: Sign Up
+      - text: 
+  - generic [ref=f5e28]:
+    - heading "Professional Pest Control Services at Your Fingertips" [level=1] [ref=f5e29]
+    - paragraph [ref=f5e30]: Connect with certified pest control experts in your area. Quick, reliable, and affordable solutions for your home or business.
+    - generic [ref=f5e32]:
+      - generic [ref=f5e33]:
+        - generic [ref=f5e34]:
+          - generic [ref=f5e35]: 
+          - text: What service do you need?
+        - textbox " What service do you need?" [ref=f5e36]:
+          - /placeholder: E.g., Termite control, Rodent removal...
+      - generic [ref=f5e37]:
+        - generic [ref=f5e38]:
+          - generic [ref=f5e39]: 
+          - text: Where?
+        - textbox " Where?" [ref=f5e40]:
+          - /placeholder: City or ZIP code
+      - button " Find Services" [ref=f5e41] [cursor=pointer]:
+        - generic [ref=f5e42]: 
+        - text: Find Services
+    - generic [ref=f5e43]:
+      - generic [ref=f5e44]:
+        - generic [ref=f5e45]: 500+
+        - text: Trusted Providers
+      - generic [ref=f5e46]:
+        - generic [ref=f5e47]: 10,000+
+        - text: Happy Customers
+      - generic [ref=f5e48]:
+        - generic [ref=f5e49]: 24/7
+        - text: Emergency Service
+      - generic [ref=f5e50]:
+        - generic [ref=f5e51]: 4.8â˜…
+        - text: Average Rating
+  - generic [ref=f5e53]:
+    - generic [ref=f5e54]:
+      - heading "Popular Pest Control Services" [level=2] [ref=f5e55]
+      - paragraph [ref=f5e56]: Browse our most requested pest control categories
+    - generic [ref=f5e57]:
+      - 'link "ðŸ› Bed Bug Control Professional Bed Bug Control control and prevention services" [ref=f5e58] [cursor=pointer]':
+        - /url: /pestify/browse/listings.php?category_id=6
+        - generic [ref=f5e59]: "ðŸ\x90›"
+        - heading "Bed Bug Control" [level=3] [ref=f5e60]
+        - paragraph [ref=f5e61]: Professional Bed Bug Control control and prevention services
+      - link "ðŸª³ Cockroach Control Professional Cockroach Control control and prevention services" [ref=f5e62] [cursor=pointer]:
+        - /url: /pestify/browse/listings.php?category_id=4
+        - generic [ref=f5e63]: ðŸª³
+        - heading "Cockroach Control" [level=3] [ref=f5e64]
+        - paragraph [ref=f5e65]: Professional Cockroach Control control and prevention services
+      - 'link "ðŸ› General Pest Control Professional General Pest Control control and prevention services" [ref=f5e66] [cursor=pointer]':
+        - /url: /pestify/browse/listings.php?category_id=1
+        - generic [ref=f5e67]: "ðŸ\x90›"
+        - heading "General Pest Control" [level=3] [ref=f5e68]
+        - paragraph [ref=f5e69]: Professional General Pest Control control and prevention services
+      - link "ðŸ¦Ÿ Mosquito Control Professional Mosquito Control control and prevention services" [ref=f5e70] [cursor=pointer]:
+        - /url: /pestify/browse/listings.php?category_id=5
+        - generic [ref=f5e71]: ðŸ¦Ÿ
+        - heading "Mosquito Control" [level=3] [ref=f5e72]
+        - paragraph [ref=f5e73]: Professional Mosquito Control control and prevention services
+      - 'link "ðŸ Rodent Control Professional Rodent Control control and prevention services" [ref=f5e74] [cursor=pointer]':
+        - /url: /pestify/browse/listings.php?category_id=3
+        - generic [ref=f5e75]: "ðŸ\x90"
+        - heading "Rodent Control" [level=3] [ref=f5e76]
+        - paragraph [ref=f5e77]: Professional Rodent Control control and prevention services
+      - link "ðŸ”¨ Termite Control Professional Termite Control control and prevention services" [ref=f5e78] [cursor=pointer]:
+        - /url: /pestify/browse/listings.php?category_id=2
+        - generic [ref=f5e79]: ðŸ”¨
+        - heading "Termite Control" [level=3] [ref=f5e80]
+        - paragraph [ref=f5e81]: Professional Termite Control control and prevention services
+  - generic [ref=f5e83]:
+    - generic [ref=f5e84]:
+      - heading "Featured Pest Control Services" [level=2] [ref=f5e85]
+      - paragraph [ref=f5e86]: Top-rated services from our trusted providers
+    - generic [ref=f5e87]:
+      - generic [ref=f5e88]:
+        - generic [ref=f5e89]: 
+        - generic [ref=f5e92]:
+          - generic [ref=f5e93]:
+            - generic [ref=f5e94]:
+              - heading "Termite Treatment Package" [level=3] [ref=f5e95]
+              - generic [ref=f5e96]: Test Company 1
+            - generic [ref=f5e98]:
+              - generic [ref=f5e99]: 
+              - generic [ref=f5e100]: "5.0"
+              - generic [ref=f5e101]: (1)
+          - paragraph [ref=f5e102]: Complete termite inspection and treatment using eco-safe baiting system. Covers up to 150 sqm....
+          - generic [ref=f5e103]:
+            - generic [ref=f5e104]:
+              - generic [ref=f5e105]: ₱8,500.00
+              - generic [ref=f5e106]: Fixed
+            - link "View " [ref=f5e107] [cursor=pointer]:
+              - /url: /pestify/browse/listing-details.php?id=1
+              - text: View
+              - generic [ref=f5e108]: 
+      - generic [ref=f5e109]:
+        - generic [ref=f5e110]: 
+        - generic [ref=f5e113]:
+          - generic [ref=f5e115]:
+            - heading "Rodent Extermination" [level=3] [ref=f5e116]
+            - generic [ref=f5e117]: Pest Control
+          - paragraph [ref=f5e119]: Rat and mouse elimination using bait stations and exclusion techniques....
+          - generic [ref=f5e120]:
+            - generic [ref=f5e121]:
+              - generic [ref=f5e122]: ₱3,500.00
+              - generic [ref=f5e123]: Fixed
+            - link "View " [ref=f5e124] [cursor=pointer]:
+              - /url: /pestify/browse/listing-details.php?id=3
+              - text: View
+              - generic [ref=f5e125]: 
+      - generic [ref=f5e126]:
+        - generic [ref=f5e127]: 
+        - generic [ref=f5e130]:
+          - generic [ref=f5e132]:
+            - heading "Cockroach Treatment" [level=3] [ref=f5e133]
+            - generic [ref=f5e134]: Pest Control
+          - paragraph [ref=f5e136]: Gel bait and spray treatment for cockroach infestations. Safe for food areas....
+          - generic [ref=f5e137]:
+            - generic [ref=f5e138]:
+              - generic [ref=f5e139]: ₱2,500.00
+              - generic [ref=f5e140]: Fixed
+            - link "View " [ref=f5e141] [cursor=pointer]:
+              - /url: /pestify/browse/listing-details.php?id=4
+              - text: View
+              - generic [ref=f5e142]: 
+      - generic [ref=f5e143]:
+        - generic [ref=f5e144]:
+          - generic [ref=f5e145]: 
+          - text: Emergency
+        - generic [ref=f5e146]: 
+        - generic [ref=f5e149]:
+          - generic [ref=f5e151]:
+            - heading "Mosquito Fogging Service" [level=3] [ref=f5e152]
+            - generic [ref=f5e153]: Anti Peste
+          - paragraph [ref=f5e155]: Outdoor and indoor mosquito fogging. Effective for 2-4 weeks....
+          - generic [ref=f5e156]:
+            - generic [ref=f5e157]:
+              - generic [ref=f5e158]: ₱1,800.00
+              - generic [ref=f5e159]: Fixed
+            - link "View " [ref=f5e160] [cursor=pointer]:
+              - /url: /pestify/browse/listing-details.php?id=5
+              - text: View
+              - generic [ref=f5e161]: 
+      - generic [ref=f5e162]:
+        - generic [ref=f5e163]: 
+        - generic [ref=f5e166]:
+          - generic [ref=f5e168]:
+            - heading "Bed Bug Heat Treatment" [level=3] [ref=f5e169]
+            - generic [ref=f5e170]: Anti Peste
+          - paragraph [ref=f5e172]: Chemical-free heat treatment for bed bug elimination....
+          - generic [ref=f5e173]:
+            - generic [ref=f5e174]:
+              - generic [ref=f5e175]: ₱12,000.00
+              - generic [ref=f5e176]: Fixed
+            - link "View " [ref=f5e177] [cursor=pointer]:
+              - /url: /pestify/browse/listing-details.php?id=6
+              - text: View
+              - generic [ref=f5e178]: 
+      - generic [ref=f5e179]:
+        - generic [ref=f5e180]:
+          - generic [ref=f5e181]: 
+          - text: Emergency
+        - generic [ref=f5e182]: 
+        - generic [ref=f5e185]:
+          - generic [ref=f5e186]:
+            - generic [ref=f5e187]:
+              - heading "Full Home Pest Control" [level=3] [ref=f5e188]
+              - generic [ref=f5e189]: Test Company 1
+            - generic [ref=f5e191]:
+              - generic [ref=f5e192]: 
+              - generic [ref=f5e193]: "5.0"
+              - generic [ref=f5e194]: (1)
+          - paragraph [ref=f5e195]: Comprehensive pest control for all common household pests. One-time treatment....
+          - generic [ref=f5e196]:
+            - generic [ref=f5e197]:
+              - generic [ref=f5e198]: ₱5,000.00
+              - generic [ref=f5e199]: Fixed
+            - link "View " [ref=f5e200] [cursor=pointer]:
+              - /url: /pestify/browse/listing-details.php?id=2
+              - text: View
+              - generic [ref=f5e201]: 
+    - link "View All Services " [ref=f5e203] [cursor=pointer]:
+      - /url: /pestify/browse/listings.php
+      - text: View All Services
+      - generic [ref=f5e204]: 
+  - generic [ref=f5e206]:
+    - generic [ref=f5e207]:
+      - heading "How Pestify Works" [level=2] [ref=f5e208]
+      - paragraph [ref=f5e209]: Simple steps to get professional pest control services
+    - generic [ref=f5e210]:
+      - generic [ref=f5e211]:
+        - generic [ref=f5e212]: "1"
+        - heading "Search & Compare" [level=3] [ref=f5e213]
+        - paragraph [ref=f5e214]: Browse verified pest control providers in your area. Compare services, prices, and reviews.
+      - generic [ref=f5e215]:
+        - generic [ref=f5e216]: "2"
+        - heading "Book Service" [level=3] [ref=f5e217]
+        - paragraph [ref=f5e218]: Select your preferred provider and schedule a service at your convenience.
+      - generic [ref=f5e219]:
+        - generic [ref=f5e220]: "3"
+        - heading "Get Service" [level=3] [ref=f5e221]
+        - paragraph [ref=f5e222]: Professional technicians arrive at your location with all necessary equipment.
+      - generic [ref=f5e223]:
+        - generic [ref=f5e224]: "4"
+        - heading "Review & Repeat" [level=3] [ref=f5e225]
+        - paragraph [ref=f5e226]: Share your experience and schedule follow-up services as needed.
+  - generic [ref=f5e227]:
+    - generic [ref=f5e228]:
+      - heading "Trusted Pest Control Companies" [level=2] [ref=f5e229]
+      - paragraph [ref=f5e230]: Partner with the best in the business
+    - generic [ref=f5e231]:
+      - generic [ref=f5e232]:
+        - generic [ref=f5e233]: TE
+        - heading "Test Company 1" [level=3] [ref=f5e234]
+        - generic [ref=f5e235]:
+          - generic [ref=f5e236]: â˜…â˜…â˜…â˜…â˜…
+          - generic [ref=f5e237]: "5.0"
+          - generic [ref=f5e238]: (1 review)
+        - generic [ref=f5e240]:
+          - generic [ref=f5e241]:
+            - generic [ref=f5e242]: "0"
+            - generic [ref=f5e243]: Services
+          - generic [ref=f5e244]:
+            - generic [ref=f5e245]: "2"
+            - generic [ref=f5e246]: Completed
+          - generic [ref=f5e247]:
+            - generic [ref=f5e248]: 50km
+            - generic [ref=f5e249]: Radius
+        - link "View Profile " [ref=f5e250] [cursor=pointer]:
+          - /url: /pestify/seeker/provider-details.php?id=31
+          - text: View Profile
+          - generic [ref=f5e251]: 
+      - generic [ref=f5e252]:
+        - generic [ref=f5e253]: PE
+        - heading "Pest Control" [level=3] [ref=f5e254]
+        - paragraph [ref=f5e255]: No reviews yet
+        - generic [ref=f5e257]:
+          - generic [ref=f5e258]:
+            - generic [ref=f5e259]: "0"
+            - generic [ref=f5e260]: Services
+          - generic [ref=f5e261]:
+            - generic [ref=f5e262]: "0"
+            - generic [ref=f5e263]: Completed
+          - generic [ref=f5e264]:
+            - generic [ref=f5e265]: 50km
+            - generic [ref=f5e266]: Radius
+        - link "View Profile " [ref=f5e267] [cursor=pointer]:
+          - /url: /pestify/seeker/provider-details.php?id=24
+          - text: View Profile
+          - generic [ref=f5e268]: 
+      - generic [ref=f5e269]:
+        - generic [ref=f5e270]: AN
+        - heading "Anti Peste" [level=3] [ref=f5e271]
+        - paragraph [ref=f5e272]: No reviews yet
+        - generic [ref=f5e274]:
+          - generic [ref=f5e275]:
+            - generic [ref=f5e276]: "0"
+            - generic [ref=f5e277]: Services
+          - generic [ref=f5e278]:
+            - generic [ref=f5e279]: "0"
+            - generic [ref=f5e280]: Completed
+          - generic [ref=f5e281]:
+            - generic [ref=f5e282]: 50km
+            - generic [ref=f5e283]: Radius
+        - link "View Profile " [ref=f5e284] [cursor=pointer]:
+          - /url: /pestify/seeker/provider-details.php?id=25
+          - text: View Profile
+          - generic [ref=f5e285]: 
+    - link " View All Companies" [ref=f5e287] [cursor=pointer]:
+      - /url: /pestify/seeker/providers.php
+      - generic [ref=f5e288]: 
+      - text: View All Companies
+  - generic [ref=f5e291]:
+    - heading "Ready to Solve Your Pest Problems?" [level=2] [ref=f5e292]
+    - paragraph [ref=f5e293]: Join thousands of satisfied customers who trust Pestify for their pest control needs.
+    - generic [ref=f5e294]:
+      - link " Find Services" [ref=f5e295] [cursor=pointer]:
+        - /url: /pestify/auth/register.php?type=seeker
+        - generic [ref=f5e296]: 
+        - text: Find Services
+      - link " List Your Business" [ref=f5e297] [cursor=pointer]:
+        - /url: /pestify/auth/register.php?type=provider
+        - generic [ref=f5e298]: 
+        - text: List Your Business
+  - contentinfo [ref=f5e299]:
+    - generic [ref=f5e300]:
+      - generic [ref=f5e301]:
+        - generic [ref=f5e302]:
+          - generic [ref=f5e303]:
+            - generic [ref=f5e304]:
+              - generic [ref=f5e305]: 
+              - generic [ref=f5e307]:
+                - generic [ref=f5e308]: Pestify
+                - generic [ref=f5e309]: Professional Pest Control
+            - paragraph [ref=f5e310]: Your trusted platform for connecting with professional pest control services. Safe, reliable, and effective solutions.
+          - generic [ref=f5e311]:
+            - link "" [ref=f5e312] [cursor=pointer]:
+              - /url: "#"
+            - link "" [ref=f5e314] [cursor=pointer]:
+              - /url: "#"
+            - link "" [ref=f5e316] [cursor=pointer]:
+              - /url: "#"
+            - link "" [ref=f5e318] [cursor=pointer]:
+              - /url: "#"
+        - generic [ref=f5e320]:
+          - heading "For Homeowners" [level=3] [ref=f5e321]
+          - list [ref=f5e322]:
+            - listitem [ref=f5e323]:
+              - link "Find Pest Control Services" [ref=f5e324] [cursor=pointer]:
+                - /url: /pestify/browse/listings.php
+            - listitem [ref=f5e325]:
+              - link "Browse Companies" [ref=f5e326] [cursor=pointer]:
+                - /url: /pestify/seeker/providers.php
+            - listitem [ref=f5e327]:
+              - link "Sign Up as Homeowner" [ref=f5e328] [cursor=pointer]:
+                - /url: /pestify/auth/register.php?type=seeker
+            - listitem [ref=f5e329]:
+              - link "Login to Account" [ref=f5e330] [cursor=pointer]:
+                - /url: /pestify/auth/login.php
+            - listitem [ref=f5e331]:
+              - link "My Service Requests" [ref=f5e332] [cursor=pointer]:
+                - /url: /pestify/seeker/my-requests.php
+        - generic [ref=f5e333]:
+          - heading "For Companies" [level=3] [ref=f5e334]
+          - list [ref=f5e335]:
+            - listitem [ref=f5e336]:
+              - link "Register Your Company" [ref=f5e337] [cursor=pointer]:
+                - /url: /pestify/auth/register.php?type=provider
+            - listitem [ref=f5e338]:
+              - link "Provider Dashboard" [ref=f5e339] [cursor=pointer]:
+                - /url: /pestify/provider/providers-dashboard.php
+            - listitem [ref=f5e340]:
+              - link "Manage Services" [ref=f5e341] [cursor=pointer]:
+                - /url: /pestify/provider/services.php
+            - listitem [ref=f5e342]:
+              - link "View Competitors" [ref=f5e343] [cursor=pointer]:
+                - /url: /pestify/seeker/providers.php
+            - listitem [ref=f5e344]:
+              - link "Company Profile" [ref=f5e345] [cursor=pointer]:
+                - /url: /pestify/profile.php
+        - generic [ref=f5e346]:
+          - heading "Support" [level=3] [ref=f5e347]
+          - list [ref=f5e348]:
+            - listitem [ref=f5e349]:
+              - link "Contact Us" [ref=f5e350] [cursor=pointer]:
+                - /url: /pestify/contact.php
+            - listitem [ref=f5e351]:
+              - link "Help & FAQ" [ref=f5e352] [cursor=pointer]:
+                - /url: /pestify/faq.php
+            - listitem [ref=f5e353]:
+              - link "Terms of Service" [ref=f5e354] [cursor=pointer]:
+                - /url: /pestify/terms.php
+            - listitem [ref=f5e355]:
+              - link "Privacy Policy" [ref=f5e356] [cursor=pointer]:
+                - /url: /pestify/privacy.php
+            - listitem [ref=f5e357]:
+              - link "Safety Guidelines" [ref=f5e358] [cursor=pointer]:
+                - /url: /pestify/safety.php
+      - generic [ref=f5e359]:
+        - paragraph [ref=f5e360]: © 2026 Pestify. All rights reserved. Pest control services are provided by independent professionals.
+        - paragraph [ref=f5e361]:
+          - generic [ref=f5e362]: 
+          - text: Licensed & Insured Providers |
+          - generic [ref=f5e363]: 
+          - text: Quality Guaranteed |
+          - generic [ref=f5e364]: 
+          - text: 24/7 Support

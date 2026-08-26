@@ -1,0 +1,33 @@
+- generic [ref=f4e4]:
+  - generic:
+    - generic:
+      - generic:
+        - dialog:
+          - generic:
+            - dialog:
+              - generic:
+                - generic:
+                  - heading "Find a Service" [level=2] [ref=f4e42]
+                  - button "Notifications" [ref=f4e43]
+                - group:
+                  - textbox "Search pest control services…" [ref=f4e45]
+                  - generic:
+                    - group:
+                      - button "All" [ref=f4e46]
+                      - button "General" [ref=f4e47]
+                      - button "Termite" [ref=f4e48]
+                      - button "Rodent" [ref=f4e49]
+                      - button "Cockroach" [ref=f4e50]
+                      - button "Mosquito" [ref=f4e51]
+                      - button "Bed Bug" [ref=f4e52]
+                  - generic [ref=f4e53]: All Services
+                  - button "ECO Termite Treatment Package Test Company 1 5.0 ₱8,500.00" [active] [ref=f4e54]
+                  - button "URGENT Full Home Pest Control Test Company 1 5.0 ₱5,000.00" [ref=f4e55]
+                  - button "Rodent Extermination Pest Control New ₱3,500.00" [ref=f4e56]
+                  - button "Cockroach Treatment Pest Control New ₱2,500.00" [ref=f4e57]
+          - generic:
+            - tablist:
+              - tab "Home" [selected] [ref=f4e58]
+              - tab "Bookings" [ref=f4e59]
+              - tab "Messages" [ref=f4e60]
+              - tab "Profile" [ref=f4e61]

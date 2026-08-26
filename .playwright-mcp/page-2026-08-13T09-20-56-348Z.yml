@@ -1,0 +1,236 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - complementary [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - heading [level=2] [ref=f1e5]:
+          - generic [ref=f1e6]: 
+          - text: Pestify
+        - paragraph [ref=f1e7]: Provider Portal
+      - list [ref=f1e8]:
+        - listitem [ref=f1e9]:
+          - link [ref=f1e10] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php
+            - generic [ref=f1e11]: 
+            - text: Dashboard
+        - listitem [ref=f1e12]:
+          - link [ref=f1e13] [cursor=pointer]:
+            - /url: /pestify/provider/services.php
+            - generic [ref=f1e14]: 
+            - text: My Services
+        - listitem [ref=f1e15]:
+          - link [ref=f1e16] [cursor=pointer]:
+            - /url: /pestify/provider/service-requests.php
+            - generic [ref=f1e17]: 
+            - text: Requests
+            - generic [ref=f1e18]: "1"
+        - listitem [ref=f1e19]:
+          - link [ref=f1e20] [cursor=pointer]:
+            - /url: /pestify/messages.php
+            - generic [ref=f1e21]: 
+            - text: Messages
+        - listitem [ref=f1e22]:
+          - link [ref=f1e23] [cursor=pointer]:
+            - /url: /pestify/profile.php
+            - generic [ref=f1e24]: 
+            - text: Profile
+        - listitem [ref=f1e25]:
+          - link [ref=f1e26] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php?view=settings#dashboard-settings
+            - generic [ref=f1e27]: 
+            - text: Settings
+        - listitem [ref=f1e28]:
+          - link [ref=f1e29] [cursor=pointer]:
+            - /url: /pestify/auth/logout.php
+            - generic [ref=f1e30]: 
+            - text: Logout
+      - generic [ref=f1e35]:
+        - heading [level=4] [ref=f1e36]: Test Company 1
+        - paragraph [ref=f1e37]: shinnny25@gmail.com
+    - main [ref=f1e38]:
+      - generic [ref=f1e39]:
+        - generic [ref=f1e40]:
+          - heading [level=1] [ref=f1e41]: Welcome back, Test1!
+          - paragraph [ref=f1e42]: Thursday, August 13, 2026
+        - generic [ref=f1e43]:
+          - link [ref=f1e44] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php?view=settings#dashboard-settings
+            - generic [ref=f1e45]: 
+            - text: Settings
+          - link [ref=f1e46] [cursor=pointer]:
+            - /url: ../provider-portal/direct-entry.php
+            - generic [ref=f1e47]: 
+            - generic [ref=f1e49]:
+              - generic [ref=f1e50]: HR & Finance
+              - text: Management System
+            - generic [ref=f1e51]: 
+      - generic [ref=f1e52]:
+        - generic [ref=f1e53] [cursor=pointer]:
+          - generic [ref=f1e54]: 
+          - generic [ref=f1e56]:
+            - heading [level=3] [ref=f1e57]: "1"
+            - paragraph [ref=f1e58]: Total Services
+        - generic [ref=f1e59] [cursor=pointer]:
+          - generic [ref=f1e60]: 
+          - generic [ref=f1e62]:
+            - heading [level=3] [ref=f1e63]: "0"
+            - paragraph [ref=f1e64]: Pending Requests
+        - generic [ref=f1e65] [cursor=pointer]:
+          - generic [ref=f1e66]: 
+          - generic [ref=f1e68]:
+            - heading [level=3] [ref=f1e69]: "1"
+            - paragraph [ref=f1e70]: Completed Jobs
+        - generic [ref=f1e71] [cursor=pointer]:
+          - generic [ref=f1e72]: $
+          - generic [ref=f1e74]:
+            - heading [level=3] [ref=f1e75]: ₱20,000.00
+            - paragraph [ref=f1e76]: Total Revenue
+      - generic [ref=f1e77]:
+        - generic [ref=f1e78]:
+          - heading [level=2] [ref=f1e79]:
+            - generic [ref=f1e80]: 
+            - text: Recent Service Requests
+            - generic [ref=f1e81]: 1 new
+          - link [ref=f1e82] [cursor=pointer]:
+            - /url: /pestify/provider/service-requests.php
+            - generic [ref=f1e83]: 
+            - text: View All
+        - table [ref=f1e85]:
+          - rowgroup [ref=f1e86]:
+            - row [ref=f1e87]:
+              - columnheader [ref=f1e88]: ID
+              - columnheader [ref=f1e89]: Customer
+              - columnheader [ref=f1e90]: Service
+              - columnheader [ref=f1e91]: Date
+              - columnheader [ref=f1e92]: Status
+              - columnheader [ref=f1e93]: Price
+              - columnheader [ref=f1e94]: Action
+          - rowgroup [ref=f1e95]:
+            - row [ref=f1e96]:
+              - cell [ref=f1e97]:
+                - strong [ref=f1e98]: "#38"
+                - generic [ref=f1e99]:
+                  - generic [ref=f1e100]: 
+                  - text: Availed
+              - cell [ref=f1e101]: Sheen Russel Castillo
+              - cell [ref=f1e103]: Test Service 101
+              - cell [ref=f1e104]: Aug 12, 2026
+              - cell [ref=f1e105]:
+                - generic [ref=f1e106]: Completed
+              - cell [ref=f1e107]:
+                - strong [ref=f1e108]: ₱20,000.00
+              - cell [ref=f1e109]:
+                - link [ref=f1e110] [cursor=pointer]:
+                  - /url: /pestify/provider/service-requests.php
+                  - generic [ref=f1e111]: 
+                  - text: View
+  - button [ref=f1e112] [cursor=pointer]:
+    - generic [ref=f1e113]: 
+    - text: Guide
+  - dialog [ref=f1e116]:
+    - generic [ref=f1e117]:
+      - heading [level=3] [ref=f1e118]:
+        - generic [ref=f1e119]: 
+        - text: Provider System Guide
+      - button [ref=f1e120] [cursor=pointer]: ×
+    - generic [ref=f1e121]:
+      - paragraph [ref=f1e122]: Use this guide as your default workflow for managing your provider account from setup to completed jobs.
+      - generic [ref=f1e123]:
+        - heading [level=4] [ref=f1e124]: New Provider Quick Start
+        - generic [ref=f1e125]: "Progress: 3 / 4 steps completed (75%)"
+        - generic [ref=f1e128]:
+          - generic [ref=f1e130]:
+            - generic [ref=f1e131]: 
+            - generic [ref=f1e132]:
+              - generic [ref=f1e133]: Complete provider setup
+              - generic [ref=f1e134]: Submit required documents and business address.
+          - generic [ref=f1e136]:
+            - generic [ref=f1e137]: 
+            - generic [ref=f1e138]:
+              - generic [ref=f1e139]: Create your first service
+              - generic [ref=f1e140]: Add service details, contract, and signature.
+          - generic [ref=f1e142]:
+            - generic [ref=f1e143]: 
+            - generic [ref=f1e144]:
+              - generic [ref=f1e145]: Respond to your first request
+              - generic [ref=f1e146]: Accept/reject quickly and keep status updated.
+          - generic [ref=f1e147]:
+            - generic [ref=f1e148]:
+              - generic [ref=f1e149]: 
+              - generic [ref=f1e150]:
+                - generic [ref=f1e151]: Complete your first booking
+                - generic [ref=f1e152]: Finish service flow and confirmation properly.
+            - link [ref=f1e153] [cursor=pointer]:
+              - /url: /pestify/provider/service-requests.php
+              - text: Open
+        - generic [ref=f1e154]:
+          - text: "Next recommended action:"
+          - strong [ref=f1e155]: Complete your first booking
+      - generic [ref=f1e156]:
+        - heading [level=4] [ref=f1e157]: Whole Provider Side Workflow
+        - list [ref=f1e158]:
+          - listitem [ref=f1e159]: Start in Dashboard to monitor activity and prioritize urgent items.
+          - listitem [ref=f1e160]: Create and maintain complete services including contract and pricing.
+          - listitem [ref=f1e161]: Handle requests fast and keep booking statuses updated.
+          - listitem [ref=f1e162]: Use Messages to coordinate with seekers before service day.
+          - listitem [ref=f1e163]: Update Profile and Settings to keep your provider account reliable.
+      - generic [ref=f1e164]:
+        - heading [level=4] [ref=f1e165]: Sidebar-Specific Guides
+        - generic [ref=f1e166]:
+          - button [ref=f1e167] [cursor=pointer]:
+            - generic [ref=f1e168]: 
+            - text: Dashboard
+          - button [ref=f1e169] [cursor=pointer]:
+            - generic [ref=f1e170]: 
+            - text: My Services
+          - button [ref=f1e171] [cursor=pointer]:
+            - generic [ref=f1e172]: 
+            - text: Requests
+          - button [ref=f1e173] [cursor=pointer]:
+            - generic [ref=f1e174]: 
+            - text: Messages
+          - button [ref=f1e175] [cursor=pointer]:
+            - generic [ref=f1e176]: 
+            - text: Profile
+          - button [ref=f1e177] [cursor=pointer]:
+            - generic [ref=f1e178]: 
+            - text: Settings
+        - generic [ref=f1e179]:
+          - generic [ref=f1e180]:
+            - generic [ref=f1e181]: 
+            - text: How to Use Dashboard
+          - list [ref=f1e182]:
+            - listitem [ref=f1e183]: Check stat cards first to monitor pending, active, and completed activity.
+            - listitem [ref=f1e184]: Review recent activity and open urgent bookings immediately.
+            - listitem [ref=f1e185]: Use dashboard shortcuts to jump into Requests and Settings.
+            - listitem [ref=f1e186]: Return here daily to track team workload and service status.
+        - text:     
+      - generic [ref=f1e187]:
+        - heading [level=4] [ref=f1e188]: Quick Navigation
+        - generic [ref=f1e189]:
+          - link [ref=f1e190] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php
+            - text: Dashboard
+          - link [ref=f1e191] [cursor=pointer]:
+            - /url: /pestify/provider/services.php
+            - text: My Services
+          - link [ref=f1e192] [cursor=pointer]:
+            - /url: /pestify/provider/service-requests.php
+            - text: Requests
+          - link [ref=f1e193] [cursor=pointer]:
+            - /url: /pestify/messages.php
+            - text: Messages
+          - link [ref=f1e194] [cursor=pointer]:
+            - /url: /pestify/profile.php
+            - text: Profile
+          - link [ref=f1e195] [cursor=pointer]:
+            - /url: /pestify/provider/providers-dashboard.php?view=settings#dashboard-settings
+            - text: Settings
+    - generic [ref=f1e196]:
+      - generic [ref=f1e197]:
+        - checkbox [ref=f1e198]
+        - text: Do not auto-open this guide again
+      - button [ref=f1e199] [cursor=pointer]: Close Guide
+  - dialog [active] [ref=f1e201]:
+    - heading "Login successful" [level=2] [ref=f1e209]
+    - generic [ref=f1e210]: Welcome back, Test1!
+    - text: "!"

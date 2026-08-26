@@ -1,0 +1,25 @@
+- generic [active] [ref=f4e4]:
+  - generic:
+    - generic:
+      - generic:
+        - dialog:
+          - generic:
+            - generic:
+              - button "Back" [ref=f4e25]
+              - banner [ref=f4e26]
+            - group:
+              - generic [ref=f4e27]: Eco-Friendly
+              - generic [ref=f4e28]: Termite Treatment Package
+              - generic [ref=f4e29]: ₱8,500.00
+              - generic [ref=f4e30]: "5.0"
+              - generic [ref=f4e31]: (1)
+              - generic [ref=f4e32]: T
+              - generic [ref=f4e33]: Service by
+              - generic [ref=f4e34]: Test Company 1
+              - button "View" [ref=f4e35]
+              - generic [ref=f4e36]: Termite Control
+              - generic [ref=f4e37]: About this service
+              - generic [ref=f4e38]: Complete termite inspection and treatment using eco-safe baiting system. Covers up to 150 sqm.
+          - generic [ref=f4e39]: Starting at
+          - generic [ref=f4e40]: ₱8,500.00
+          - button "Book Now" [ref=f4e41]

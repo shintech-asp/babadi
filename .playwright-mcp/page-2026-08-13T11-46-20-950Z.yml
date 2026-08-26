@@ -1,0 +1,154 @@
+- generic [ref=f3e2]:
+  - link " Back to Provider" [ref=f3e3] [cursor=pointer]:
+    - /url: /pestify/provider/providers-dashboard.php
+    - generic [ref=f3e4]: 
+    - text: Back to Provider
+  - complementary [ref=f3e5]:
+    - generic [ref=f3e6]:
+      - generic [ref=f3e7]:
+        - generic [ref=f3e8]: 
+        - generic [ref=f3e10]:
+          - heading "Pestify" [level=2] [ref=f3e11]
+          - paragraph [ref=f3e12]: Provider Portal
+      - generic [ref=f3e13]:
+        - generic [ref=f3e14]: 
+        - text: Pro
+    - generic [ref=f3e15]:
+      - generic [ref=f3e16]: Company
+      - strong [ref=f3e17]: Test Company 1
+    - navigation [ref=f3e18]:
+      - generic [ref=f3e19]: Overview
+      - link " Dashboard" [ref=f3e20] [cursor=pointer]:
+        - /url: dashboard.php
+        - generic [ref=f3e21]: 
+        - text: Dashboard
+      - generic [ref=f3e22]: HR Department
+      - link " Employees" [ref=f3e23] [cursor=pointer]:
+        - /url: employees.php
+        - generic [ref=f3e24]: 
+        - text: Employees
+      - link " Leave Requests" [ref=f3e25] [cursor=pointer]:
+        - /url: leave-requests.php
+        - generic [ref=f3e26]: 
+        - text: Leave Requests
+      - link " HR Dashboard" [ref=f3e27] [cursor=pointer]:
+        - /url: hr-dashboard.php
+        - generic [ref=f3e28]: 
+        - text: HR Dashboard
+      - link " Attendance" [ref=f3e29] [cursor=pointer]:
+        - /url: attendance.php
+        - generic [ref=f3e30]: 
+        - text: Attendance
+      - link " Timekeeping" [ref=f3e31] [cursor=pointer]:
+        - /url: timekeeping.php
+        - generic [ref=f3e32]: 
+        - text: Timekeeping
+      - link " Payroll" [ref=f3e33] [cursor=pointer]:
+        - /url: payroll.php
+        - generic [ref=f3e34]: 
+        - text: Payroll
+      - link " Recruitment" [ref=f3e35] [cursor=pointer]:
+        - /url: recruitment.php
+        - generic [ref=f3e36]: 
+        - text: Recruitment
+      - generic [ref=f3e37]: Finance Department
+      - link " Income" [ref=f3e38] [cursor=pointer]:
+        - /url: income.php
+        - generic [ref=f3e39]: 
+        - text: Income
+      - link " Finance Dashboard" [ref=f3e40] [cursor=pointer]:
+        - /url: finance-dashboard.php
+        - generic [ref=f3e41]: 
+        - text: Finance Dashboard
+      - link " Expenses" [ref=f3e42] [cursor=pointer]:
+        - /url: expenses.php
+        - generic [ref=f3e43]: 
+        - text: Expenses
+      - link " Budget Requests" [ref=f3e44] [cursor=pointer]:
+        - /url: budget-requests.php
+        - generic [ref=f3e45]: 
+        - text: Budget Requests
+      - generic [ref=f3e46]: CRM / Operations
+      - link " Bookings" [ref=f3e47] [cursor=pointer]:
+        - /url: crm-bookings.php
+        - generic [ref=f3e48]: 
+        - text: Bookings
+      - link " Requests" [ref=f3e49] [cursor=pointer]:
+        - /url: crm-requests.php
+        - generic [ref=f3e50]: 
+        - text: Requests
+      - link " Services" [ref=f3e51] [cursor=pointer]:
+        - /url: crm-services.php
+        - generic [ref=f3e52]: 
+        - text: Services
+      - link " CRM Dashboard" [ref=f3e53] [cursor=pointer]:
+        - /url: crm-dashboard.php
+        - generic [ref=f3e54]: 
+        - text: CRM Dashboard
+      - link " Schedules" [ref=f3e55] [cursor=pointer]:
+        - /url: schedules.php
+        - generic [ref=f3e56]: 
+        - text: Schedules
+      - link " QR Scan" [ref=f3e57] [cursor=pointer]:
+        - /url: scan-qr.php
+        - generic [ref=f3e58]: 
+        - text: QR Scan
+      - generic [ref=f3e59]: Management
+      - link " Manage Staff" [ref=f3e60] [cursor=pointer]:
+        - /url: staff.php
+        - generic [ref=f3e61]: 
+        - text: Manage Staff
+      - link " Archive" [ref=f3e62] [cursor=pointer]:
+        - /url: archive.php
+        - generic [ref=f3e63]: 
+        - text: Archive
+      - link " Settings" [ref=f3e64] [cursor=pointer]:
+        - /url: settings.php
+        - generic [ref=f3e65]: 
+        - text: Settings
+      - link " Subscription" [ref=f3e66] [cursor=pointer]:
+        - /url: subscriptions.php
+        - generic [ref=f3e67]: 
+        - text: Subscription
+      - generic [ref=f3e68]: Account
+      - link " Messages" [ref=f3e69] [cursor=pointer]:
+        - /url: portal-messages.php
+        - generic [ref=f3e70]: 
+        - text: Messages
+      - link " Change Password" [ref=f3e71] [cursor=pointer]:
+        - /url: change-password.php
+        - generic [ref=f3e72]: 
+        - text: Change Password
+      - link " Logout" [ref=f3e73] [cursor=pointer]:
+        - /url: logout.php
+        - generic [ref=f3e74]: 
+        - text: Logout
+    - generic [ref=f3e76]:
+      - generic [ref=f3e77]: T
+      - generic [ref=f3e78]:
+        - heading "Test1 Test1" [level=4] [ref=f3e79]
+        - paragraph [ref=f3e80]: owner · all
+  - generic [ref=f3e82]:
+    - generic [ref=f3e83]:
+      - heading " Scan Seeker QR Code" [level=1] [ref=f3e84]:
+        - generic [ref=f3e85]: 
+        - text: Scan Seeker QR Code
+      - paragraph [ref=f3e86]: Ask the seeker to open their booking and show the QR. Scan it to start the service.
+    - generic [ref=f3e87]:
+      - generic [ref=f3e88]:
+        - generic [ref=f3e89]: 
+        - heading "Camera Scanner" [level=2] [ref=f3e91]
+      - generic [ref=f3e92]:
+        - button " Start Camera" [ref=f3e93] [cursor=pointer]:
+          - generic [ref=f3e94]: 
+          - text: Start Camera
+        - text: 
+    - generic [ref=f3e95]:
+      - generic [ref=f3e96]:
+        - generic [ref=f3e97]: 
+        - heading "Manual Token Entry" [level=2] [ref=f3e99]
+      - generic [ref=f3e102]:
+        - textbox "Paste QR token…" [ref=f3e103]
+        - button " Validate" [ref=f3e104] [cursor=pointer]:
+          - generic [ref=f3e105]: 
+          - text: Validate

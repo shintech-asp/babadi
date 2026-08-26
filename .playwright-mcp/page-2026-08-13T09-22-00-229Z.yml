@@ -1,0 +1,1 @@
+- generic [active] [ref=f4e1]: "portal_provider_id (session) : 31 pid (after cast) : 31 portal_role : owner portal_company (session) : Test Company 1 DB query result: Array ( [id] => 31 [company_name] => Test Company 1 [address] => Bagong Bayan, Dasmariñas, Cavite [city] => Dasmarinas [state] => Cavite )"

@@ -1,0 +1,196 @@
+- generic [ref=f6e2]:
+  - link " Back to Provider" [ref=f6e3] [cursor=pointer]:
+    - /url: /pestify/provider/providers-dashboard.php
+    - generic [ref=f6e4]: 
+    - text: Back to Provider
+  - complementary [ref=f6e5]:
+    - generic [ref=f6e6]:
+      - generic [ref=f6e7]:
+        - generic [ref=f6e8]: 
+        - generic [ref=f6e10]:
+          - heading "Pestify" [level=2] [ref=f6e11]
+          - paragraph [ref=f6e12]: Provider Portal
+      - generic [ref=f6e13]:
+        - generic [ref=f6e14]: 
+        - text: Pro
+    - generic [ref=f6e15]:
+      - generic [ref=f6e16]: Company
+      - strong [ref=f6e17]: Test Company 1
+    - navigation [ref=f6e18]:
+      - generic [ref=f6e19]: Overview
+      - link " Dashboard" [ref=f6e20] [cursor=pointer]:
+        - /url: dashboard.php
+        - generic [ref=f6e21]: 
+        - text: Dashboard
+      - generic [ref=f6e22]: HR Department
+      - link " Employees" [ref=f6e23] [cursor=pointer]:
+        - /url: employees.php
+        - generic [ref=f6e24]: 
+        - text: Employees
+      - link " Leave Requests" [ref=f6e25] [cursor=pointer]:
+        - /url: leave-requests.php
+        - generic [ref=f6e26]: 
+        - text: Leave Requests
+      - link " HR Dashboard" [ref=f6e27] [cursor=pointer]:
+        - /url: hr-dashboard.php
+        - generic [ref=f6e28]: 
+        - text: HR Dashboard
+      - link " Attendance" [ref=f6e29] [cursor=pointer]:
+        - /url: attendance.php
+        - generic [ref=f6e30]: 
+        - text: Attendance
+      - link " Timekeeping" [ref=f6e31] [cursor=pointer]:
+        - /url: timekeeping.php
+        - generic [ref=f6e32]: 
+        - text: Timekeeping
+      - link " Payroll" [ref=f6e33] [cursor=pointer]:
+        - /url: payroll.php
+        - generic [ref=f6e34]: 
+        - text: Payroll
+      - link " Recruitment" [ref=f6e35] [cursor=pointer]:
+        - /url: recruitment.php
+        - generic [ref=f6e36]: 
+        - text: Recruitment
+      - generic [ref=f6e37]: Finance Department
+      - link " Income" [ref=f6e38] [cursor=pointer]:
+        - /url: income.php
+        - generic [ref=f6e39]: 
+        - text: Income
+      - link " Finance Dashboard" [ref=f6e40] [cursor=pointer]:
+        - /url: finance-dashboard.php
+        - generic [ref=f6e41]: 
+        - text: Finance Dashboard
+      - link " Expenses" [ref=f6e42] [cursor=pointer]:
+        - /url: expenses.php
+        - generic [ref=f6e43]: 
+        - text: Expenses
+      - link " Budget Requests" [ref=f6e44] [cursor=pointer]:
+        - /url: budget-requests.php
+        - generic [ref=f6e45]: 
+        - text: Budget Requests
+      - generic [ref=f6e46]: CRM / Operations
+      - link " Bookings" [ref=f6e47] [cursor=pointer]:
+        - /url: crm-bookings.php
+        - generic [ref=f6e48]: 
+        - text: Bookings
+      - link " Requests" [ref=f6e49] [cursor=pointer]:
+        - /url: crm-requests.php
+        - generic [ref=f6e50]: 
+        - text: Requests
+      - link " Services" [ref=f6e51] [cursor=pointer]:
+        - /url: crm-services.php
+        - generic [ref=f6e52]: 
+        - text: Services
+      - link " CRM Dashboard" [ref=f6e53] [cursor=pointer]:
+        - /url: crm-dashboard.php
+        - generic [ref=f6e54]: 
+        - text: CRM Dashboard
+      - link " Schedules" [ref=f6e55] [cursor=pointer]:
+        - /url: schedules.php
+        - generic [ref=f6e56]: 
+        - text: Schedules
+      - link " QR Scan" [ref=f6e57] [cursor=pointer]:
+        - /url: scan-qr.php
+        - generic [ref=f6e58]: 
+        - text: QR Scan
+      - generic [ref=f6e59]: Management
+      - link " Manage Staff" [ref=f6e60] [cursor=pointer]:
+        - /url: staff.php
+        - generic [ref=f6e61]: 
+        - text: Manage Staff
+      - link " Archive" [ref=f6e62] [cursor=pointer]:
+        - /url: archive.php
+        - generic [ref=f6e63]: 
+        - text: Archive
+      - link " Settings" [ref=f6e64] [cursor=pointer]:
+        - /url: settings.php
+        - generic [ref=f6e65]: 
+        - text: Settings
+      - link " Subscription" [ref=f6e66] [cursor=pointer]:
+        - /url: subscriptions.php
+        - generic [ref=f6e67]: 
+        - text: Subscription
+      - generic [ref=f6e68]: Account
+      - link " Messages" [ref=f6e69] [cursor=pointer]:
+        - /url: portal-messages.php
+        - generic [ref=f6e70]: 
+        - text: Messages
+      - link " Change Password" [ref=f6e71] [cursor=pointer]:
+        - /url: change-password.php
+        - generic [ref=f6e72]: 
+        - text: Change Password
+      - link " Logout" [ref=f6e73] [cursor=pointer]:
+        - /url: logout.php
+        - generic [ref=f6e74]: 
+        - text: Logout
+    - generic [ref=f6e76]:
+      - generic [ref=f6e77]: T
+      - generic [ref=f6e78]:
+        - heading "Test1 Test1" [level=4] [ref=f6e79]
+        - paragraph [ref=f6e80]: owner · all
+  - generic [ref=f6e82]:
+    - generic [ref=f6e83]:
+      - heading " Management Settings" [level=1] [ref=f6e84]:
+        - generic [ref=f6e85]: 
+        - text: Management Settings
+      - paragraph [ref=f6e86]: Configure your portal, HR policies, finance rules, and notification preferences.
+    - generic [ref=f6e87]:
+      - link " Company" [ref=f6e88] [cursor=pointer]:
+        - /url: "?tab=company"
+        - generic [ref=f6e89]: 
+        - text: Company
+      - link " Office Location" [ref=f6e90] [cursor=pointer]:
+        - /url: "?tab=location"
+        - generic [ref=f6e91]: 
+        - text: Office Location
+      - link " HR & Payroll" [ref=f6e92] [cursor=pointer]:
+        - /url: "?tab=hr"
+        - generic [ref=f6e93]: 
+        - text: HR & Payroll
+      - link " Finance" [ref=f6e94] [cursor=pointer]:
+        - /url: "?tab=finance"
+        - generic [ref=f6e95]: 
+        - text: Finance
+      - link " Notifications" [ref=f6e96] [cursor=pointer]:
+        - /url: "?tab=notifications"
+        - generic [ref=f6e97]: 
+        - text: Notifications
+    - generic [ref=f6e99]:
+      - generic [ref=f6e100]:
+        - generic [ref=f6e101]: 
+        - generic [ref=f6e103]:
+          - heading "Company Information" [level=2] [ref=f6e104]
+          - paragraph [ref=f6e105]: Basic details about your business shown across the portal
+      - generic [ref=f6e106]:
+        - generic [ref=f6e107]:
+          - generic [ref=f6e108]:
+            - generic [ref=f6e109]: Company Name *
+            - textbox [ref=f6e110]: Test Company 1
+          - generic [ref=f6e111]:
+            - generic [ref=f6e112]: Business Description
+            - textbox [ref=f6e113]: Test Description
+          - generic [ref=f6e114]:
+            - generic [ref=f6e115]: Business Registration No.
+            - textbox [ref=f6e116]
+          - generic [ref=f6e117]:
+            - generic [ref=f6e118]: License Number
+            - textbox [ref=f6e119]
+        - generic [ref=f6e120]:
+          - generic [ref=f6e121]: 
+          - text: Address
+        - generic [ref=f6e122]:
+          - generic [ref=f6e123]:
+            - generic [ref=f6e124]: Street Address
+            - textbox [ref=f6e125]: Bagong Bayan, Dasmariñas, Cavite
+          - generic [ref=f6e126]:
+            - generic [ref=f6e127]: City
+            - textbox [ref=f6e128]: Dasmarinas
+          - generic [ref=f6e129]:
+            - generic [ref=f6e130]: State / Province
+            - textbox [ref=f6e131]: Cavite
+          - generic [ref=f6e132]:
+            - generic [ref=f6e133]: ZIP Code
+            - textbox [ref=f6e134]: "4114"
+        - button " Save Company Info" [ref=f6e135] [cursor=pointer]:
+          - generic [ref=f6e136]: 
+          - text: Save Company Info

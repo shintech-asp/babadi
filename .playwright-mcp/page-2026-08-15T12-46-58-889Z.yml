@@ -1,0 +1,17 @@
+- generic [ref=f4e4] [cursor=pointer]:
+  - generic:
+    - generic:
+      - generic:
+        - dialog:
+          - generic:
+            - dialog:
+              - heading "Messages" [level=2] [ref=f4e62]
+              - generic:
+                - group:
+                  - button "TT Test1 Test1 3d hey" [ref=f4e63]
+          - generic:
+            - tablist:
+              - tab "Home" [ref=f4e58]
+              - tab "Bookings" [ref=f4e59]
+              - tab "Messages" [active] [selected] [ref=f4e60]
+              - tab "Profile" [ref=f4e61]

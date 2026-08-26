@@ -1,0 +1,205 @@
+- generic [ref=f7e2]:
+  - link " Back to Provider" [ref=f7e3] [cursor=pointer]:
+    - /url: /pestify/provider/providers-dashboard.php
+    - generic [ref=f7e4]: 
+    - text: Back to Provider
+  - complementary [ref=f7e5]:
+    - generic [ref=f7e6]:
+      - generic [ref=f7e7]:
+        - generic [ref=f7e8]: 
+        - generic [ref=f7e10]:
+          - heading "Pestify" [level=2] [ref=f7e11]
+          - paragraph [ref=f7e12]: Provider Portal
+      - generic [ref=f7e13]:
+        - generic [ref=f7e14]: 
+        - text: Pro
+    - generic [ref=f7e15]:
+      - generic [ref=f7e16]: Company
+      - strong [ref=f7e17]: Test Company 1
+    - navigation [ref=f7e18]:
+      - generic [ref=f7e19]: Overview
+      - link " Dashboard" [ref=f7e20] [cursor=pointer]:
+        - /url: dashboard.php
+        - generic [ref=f7e21]: 
+        - text: Dashboard
+      - generic [ref=f7e22]: HR Department
+      - link " Employees" [ref=f7e23] [cursor=pointer]:
+        - /url: employees.php
+        - generic [ref=f7e24]: 
+        - text: Employees
+      - link " Leave Requests" [ref=f7e25] [cursor=pointer]:
+        - /url: leave-requests.php
+        - generic [ref=f7e26]: 
+        - text: Leave Requests
+      - link " HR Dashboard" [ref=f7e27] [cursor=pointer]:
+        - /url: hr-dashboard.php
+        - generic [ref=f7e28]: 
+        - text: HR Dashboard
+      - link " Attendance" [ref=f7e29] [cursor=pointer]:
+        - /url: attendance.php
+        - generic [ref=f7e30]: 
+        - text: Attendance
+      - link " Timekeeping" [ref=f7e31] [cursor=pointer]:
+        - /url: timekeeping.php
+        - generic [ref=f7e32]: 
+        - text: Timekeeping
+      - link " Payroll" [ref=f7e33] [cursor=pointer]:
+        - /url: payroll.php
+        - generic [ref=f7e34]: 
+        - text: Payroll
+      - link " Recruitment" [ref=f7e35] [cursor=pointer]:
+        - /url: recruitment.php
+        - generic [ref=f7e36]: 
+        - text: Recruitment
+      - generic [ref=f7e37]: Finance Department
+      - link " Income" [ref=f7e38] [cursor=pointer]:
+        - /url: income.php
+        - generic [ref=f7e39]: 
+        - text: Income
+      - link " Finance Dashboard" [ref=f7e40] [cursor=pointer]:
+        - /url: finance-dashboard.php
+        - generic [ref=f7e41]: 
+        - text: Finance Dashboard
+      - link " Expenses" [ref=f7e42] [cursor=pointer]:
+        - /url: expenses.php
+        - generic [ref=f7e43]: 
+        - text: Expenses
+      - link " Budget Requests" [ref=f7e44] [cursor=pointer]:
+        - /url: budget-requests.php
+        - generic [ref=f7e45]: 
+        - text: Budget Requests
+      - generic [ref=f7e46]: CRM / Operations
+      - link " Bookings" [ref=f7e47] [cursor=pointer]:
+        - /url: crm-bookings.php
+        - generic [ref=f7e48]: 
+        - text: Bookings
+      - link " Requests" [ref=f7e49] [cursor=pointer]:
+        - /url: crm-requests.php
+        - generic [ref=f7e50]: 
+        - text: Requests
+      - link " Services" [ref=f7e51] [cursor=pointer]:
+        - /url: crm-services.php
+        - generic [ref=f7e52]: 
+        - text: Services
+      - link " CRM Dashboard" [ref=f7e53] [cursor=pointer]:
+        - /url: crm-dashboard.php
+        - generic [ref=f7e54]: 
+        - text: CRM Dashboard
+      - link " Schedules" [ref=f7e55] [cursor=pointer]:
+        - /url: schedules.php
+        - generic [ref=f7e56]: 
+        - text: Schedules
+      - link " QR Scan" [ref=f7e57] [cursor=pointer]:
+        - /url: scan-qr.php
+        - generic [ref=f7e58]: 
+        - text: QR Scan
+      - generic [ref=f7e59]: Management
+      - link " Manage Staff" [ref=f7e60] [cursor=pointer]:
+        - /url: staff.php
+        - generic [ref=f7e61]: 
+        - text: Manage Staff
+      - link " Archive" [ref=f7e62] [cursor=pointer]:
+        - /url: archive.php
+        - generic [ref=f7e63]: 
+        - text: Archive
+      - link " Settings" [ref=f7e64] [cursor=pointer]:
+        - /url: settings.php
+        - generic [ref=f7e65]: 
+        - text: Settings
+      - link " Subscription" [ref=f7e66] [cursor=pointer]:
+        - /url: subscriptions.php
+        - generic [ref=f7e67]: 
+        - text: Subscription
+      - generic [ref=f7e68]: Account
+      - link " Messages" [ref=f7e69] [cursor=pointer]:
+        - /url: portal-messages.php
+        - generic [ref=f7e70]: 
+        - text: Messages
+      - link " Change Password" [ref=f7e71] [cursor=pointer]:
+        - /url: change-password.php
+        - generic [ref=f7e72]: 
+        - text: Change Password
+      - link " Logout" [ref=f7e73] [cursor=pointer]:
+        - /url: logout.php
+        - generic [ref=f7e74]: 
+        - text: Logout
+    - generic [ref=f7e76]:
+      - generic [ref=f7e77]: T
+      - generic [ref=f7e78]:
+        - heading "Test1 Test1" [level=4] [ref=f7e79]
+        - paragraph [ref=f7e80]: owner · all
+  - generic [ref=f7e82]:
+    - generic [ref=f7e83]:
+      - heading " Management Settings" [level=1] [ref=f7e84]:
+        - generic [ref=f7e85]: 
+        - text: Management Settings
+      - paragraph [ref=f7e86]: Configure your portal, HR policies, finance rules, and notification preferences.
+    - generic [ref=f7e87]:
+      - link " Company" [ref=f7e88] [cursor=pointer]:
+        - /url: "?tab=company"
+        - generic [ref=f7e89]: 
+        - text: Company
+      - link " Office Location" [ref=f7e90] [cursor=pointer]:
+        - /url: "?tab=location"
+        - generic [ref=f7e91]: 
+        - text: Office Location
+      - link " HR & Payroll" [ref=f7e92] [cursor=pointer]:
+        - /url: "?tab=hr"
+        - generic [ref=f7e93]: 
+        - text: HR & Payroll
+      - link " Finance" [ref=f7e94] [cursor=pointer]:
+        - /url: "?tab=finance"
+        - generic [ref=f7e95]: 
+        - text: Finance
+      - link " Notifications" [ref=f7e96] [cursor=pointer]:
+        - /url: "?tab=notifications"
+        - generic [ref=f7e97]: 
+        - text: Notifications
+    - generic [ref=f7e99]:
+      - generic [ref=f7e100]:
+        - generic [ref=f7e101]: 
+        - generic [ref=f7e103]:
+          - heading "Office Location & Geofence" [level=2] [ref=f7e104]
+          - paragraph [ref=f7e105]: Pin your office on the map — staff must be within 10km to clock in biometrically
+      - generic [ref=f7e106]:
+        - paragraph [ref=f7e107]:
+          - generic [ref=f7e108]: 
+          - text: Click anywhere on the map to set or move the pin. Search your address using the search bar, then click to confirm.
+        - generic [ref=f7e109]:
+          - generic:
+            - generic:
+              - img:
+                - generic:
+                  - generic [ref=f7e110] [cursor=pointer]
+                  - generic [ref=f7e111] [cursor=pointer]
+            - button [ref=f7e112] [cursor=pointer]
+          - generic:
+            - generic [ref=f7e114]:
+              - button "Zoom in" [ref=f7e115] [cursor=pointer]: +
+              - button "Zoom out" [ref=f7e116] [cursor=pointer]: −
+            - generic [ref=f7e117]:
+              - link "Leaflet" [ref=f7e118] [cursor=pointer]:
+                - /url: https://leafletjs.com
+              - text: "| ©"
+              - link "OpenStreetMap" [ref=f7e123] [cursor=pointer]:
+                - /url: https://www.openstreetmap.org/copyright
+        - generic [ref=f7e124]:
+          - generic [ref=f7e125]:
+            - generic [ref=f7e126]:
+              - generic [ref=f7e127]: 
+              - text: Latitude
+            - text: "14.1185970"
+          - generic [ref=f7e128]:
+            - generic [ref=f7e129]:
+              - generic [ref=f7e130]: 
+              - text: Longitude
+            - text: "120.8430862"
+          - generic [ref=f7e131]:
+            - generic [ref=f7e132]:
+              - generic [ref=f7e133]: 
+              - text: Geofence Radius
+            - text: 10 km around the pin
+        - text:  
+        - button " Save Location" [ref=f7e134] [cursor=pointer]:
+          - generic [ref=f7e135]: 
+          - text: Save Location

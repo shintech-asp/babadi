@@ -1,0 +1,1 @@
+[    2261ms] [WARNING] registerExtension() from dart:developer is only supported in build/run/test environments where the developer event method hooks have been set by package:dwds v11.1.0 or higher. @ http://localhost:3000/dart_sdk.js:56813

@@ -1,0 +1,335 @@
+/* assets/css/seeker-unified.css
+   Shared visual system for seeker-facing pages */
+
+body.seeker-unified {
+    --su-bg: #f3f6fb;
+    --su-surface: #ffffff;
+    --su-surface-soft: #f8fbff;
+    --su-border: #dce5f2;
+    --su-text: #132039;
+    --su-muted: #5f6b7f;
+    --su-primary: #2b6cb0;
+    --su-primary-dark: #245a96;
+    --su-success: #2f855a;
+    --su-warning: #b7791f;
+    --su-danger: #c53030;
+    --su-radius: 14px;
+    --su-shadow: 0 8px 22px rgba(18, 33, 58, 0.08);
+    --su-shadow-hover: 0 14px 32px rgba(18, 33, 58, 0.14);
+    --su-gradient: linear-gradient(135deg, #2b6cb0 0%, #3b82f6 100%);
+    background: radial-gradient(circle at top, #f9fcff 0%, #f3f6fb 40%, #eef3f9 100%);
+    color: var(--su-text);
+}
+
+body.seeker-unified h1,
+body.seeker-unified h2,
+body.seeker-unified h3,
+body.seeker-unified h4,
+body.seeker-unified h5,
+body.seeker-unified h6 {
+    color: var(--su-text);
+}
+
+body.seeker-unified p,
+body.seeker-unified .text-muted,
+body.seeker-unified .detail-label,
+body.seeker-unified .results-count {
+    color: var(--su-muted) !important;
+}
+
+body.seeker-unified .services-browse-page,
+body.seeker-unified .providers-browse-page,
+body.seeker-unified .provider-details-page {
+    background: transparent !important;
+}
+
+body.seeker-unified .filters-section,
+body.seeker-unified .request-card,
+body.seeker-unified .service-card,
+body.seeker-unified .provider-card,
+body.seeker-unified .section-card,
+body.seeker-unified .card,
+body.seeker-unified .result-card,
+body.seeker-unified .error-card,
+body.seeker-unified .steps-box,
+body.seeker-unified .payment-prompt-banner,
+body.seeker-unified .pay-strip,
+body.seeker-unified .return-banner,
+body.seeker-unified .success-banner,
+body.seeker-unified .info-banner,
+body.seeker-unified .notif-item,
+body.seeker-unified .modal-box {
+    background: var(--su-surface) !important;
+    border: 1px solid var(--su-border) !important;
+    border-radius: var(--su-radius) !important;
+    box-shadow: var(--su-shadow) !important;
+}
+
+body.seeker-unified .request-card:hover,
+body.seeker-unified .service-card:hover,
+body.seeker-unified .provider-card:hover,
+body.seeker-unified .notif-item:hover {
+    box-shadow: var(--su-shadow-hover) !important;
+    transform: translateY(-2px);
+}
+
+body.seeker-unified .card-header,
+body.seeker-unified .service-header,
+body.seeker-unified .provider-header,
+body.seeker-unified .provider-hero,
+body.seeker-unified .modal-top {
+    background: var(--su-gradient) !important;
+    color: #ffffff !important;
+    border: none !important;
+}
+
+body.seeker-unified .card-header i,
+body.seeker-unified .service-header i,
+body.seeker-unified .provider-header i {
+    color: #ffffff !important;
+}
+
+body.seeker-unified .page-tabs {
+    border-bottom: 1px solid var(--su-border) !important;
+    margin-bottom: 1.5rem;
+}
+
+body.seeker-unified .page-tab {
+    color: var(--su-muted);
+    border-bottom-width: 2px;
+}
+
+body.seeker-unified .page-tab:hover,
+body.seeker-unified .page-tab.active {
+    color: var(--su-primary);
+    border-bottom-color: var(--su-primary);
+}
+
+body.seeker-unified .page-tab-count,
+body.seeker-unified .status-count,
+body.seeker-unified .chip {
+    border-radius: 999px !important;
+}
+
+body.seeker-unified .status-filter {
+    background: #f7faff;
+    border: 1px solid var(--su-border);
+    color: var(--su-muted);
+    border-radius: 10px;
+}
+
+body.seeker-unified .status-filter:hover,
+body.seeker-unified .status-filter.active {
+    background: #eaf2ff;
+    border-color: #b7d2ff;
+    color: var(--su-primary);
+}
+
+body.seeker-unified .btn,
+body.seeker-unified .btn-primary,
+body.seeker-unified .btn-search,
+body.seeker-unified .btn-request,
+body.seeker-unified .btn-view,
+body.seeker-unified .btn-success-main,
+body.seeker-unified .service-action,
+body.seeker-unified .provider-actions a.btn-view,
+body.seeker-unified .service-actions a.btn-request,
+body.seeker-unified .request-actions .btn-primary,
+body.seeker-unified .mark-all-read-btn,
+body.seeker-unified .btn-return-primary {
+    background: var(--su-gradient) !important;
+    color: #ffffff !important;
+    border: 1px solid transparent !important;
+    border-radius: 10px !important;
+    box-shadow: 0 4px 14px rgba(43, 108, 176, 0.25);
+    transition: all 0.2s ease;
+}
+
+body.seeker-unified .btn:hover,
+body.seeker-unified .btn-primary:hover,
+body.seeker-unified .btn-search:hover,
+body.seeker-unified .btn-request:hover,
+body.seeker-unified .btn-view:hover,
+body.seeker-unified .btn-success-main:hover,
+body.seeker-unified .service-action:hover,
+body.seeker-unified .provider-actions a.btn-view:hover,
+body.seeker-unified .service-actions a.btn-request:hover,
+body.seeker-unified .request-actions .btn-primary:hover,
+body.seeker-unified .mark-all-read-btn:hover,
+body.seeker-unified .btn-return-primary:hover {
+    background: linear-gradient(135deg, #245a96 0%, #2f6fe2 100%) !important;
+    transform: translateY(-1px);
+}
+
+body.seeker-unified .btn-outline,
+body.seeker-unified .btn-provider,
+body.seeker-unified .btn-contact,
+body.seeker-unified .btn-reset,
+body.seeker-unified .btn-outline-green,
+body.seeker-unified .btn-return-outline,
+body.seeker-unified .request-actions .btn-outline {
+    background: #f7faff !important;
+    color: var(--su-primary) !important;
+    border: 1px solid #b7d2ff !important;
+    border-radius: 10px !important;
+}
+
+body.seeker-unified .btn-outline:hover,
+body.seeker-unified .btn-provider:hover,
+body.seeker-unified .btn-contact:hover,
+body.seeker-unified .btn-reset:hover,
+body.seeker-unified .btn-outline-green:hover,
+body.seeker-unified .btn-return-outline:hover,
+body.seeker-unified .request-actions .btn-outline:hover {
+    background: #eaf2ff !important;
+}
+
+body.seeker-unified .btn-danger,
+body.seeker-unified .request-actions .btn-danger {
+    background: #fff1f2 !important;
+    color: var(--su-danger) !important;
+    border: 1px solid #fecdd3 !important;
+}
+
+body.seeker-unified input[type="text"],
+body.seeker-unified input[type="email"],
+body.seeker-unified input[type="number"],
+body.seeker-unified input[type="date"],
+body.seeker-unified input[type="time"],
+body.seeker-unified select,
+body.seeker-unified textarea,
+body.seeker-unified .form-control {
+    background: #ffffff !important;
+    border: 1px solid var(--su-border) !important;
+    border-radius: 10px !important;
+    color: var(--su-text) !important;
+    box-shadow: none;
+}
+
+body.seeker-unified input:focus,
+body.seeker-unified select:focus,
+body.seeker-unified textarea:focus,
+body.seeker-unified .form-control:focus {
+    border-color: #93baf5 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16) !important;
+    outline: none;
+}
+
+body.seeker-unified .badge,
+body.seeker-unified .satisfaction-badge,
+body.seeker-unified .availed-tag,
+body.seeker-unified .payment-meta-chip,
+body.seeker-unified .return-banner-chip {
+    border-radius: 999px !important;
+    font-weight: 700;
+}
+
+body.seeker-unified .badge-warning,
+body.seeker-unified .bg-warning {
+    background: #fff7e6 !important;
+    color: var(--su-warning) !important;
+    border-color: #f7d9a8 !important;
+}
+
+body.seeker-unified .badge-success,
+body.seeker-unified .bg-success {
+    background: #edf9f2 !important;
+    color: var(--su-success) !important;
+    border-color: #b7e4c8 !important;
+}
+
+body.seeker-unified .badge-danger,
+body.seeker-unified .bg-danger {
+    background: #fff1f2 !important;
+    color: var(--su-danger) !important;
+    border-color: #fecdd3 !important;
+}
+
+body.seeker-unified .badge-primary,
+body.seeker-unified .bg-primary {
+    background: #eaf2ff !important;
+    color: var(--su-primary) !important;
+    border-color: #b7d2ff !important;
+}
+
+body.seeker-unified .badge-info,
+body.seeker-unified .bg-info {
+    background: #eef8ff !important;
+    color: #0f5f95 !important;
+    border-color: #bfdbfe !important;
+}
+
+body.seeker-unified .payment-prompt-banner,
+body.seeker-unified .pay-strip,
+body.seeker-unified .return-banner.cancelled,
+body.seeker-unified .info-banner {
+    background: #fffbf1 !important;
+    border-color: #f6dda5 !important;
+}
+
+body.seeker-unified .return-banner.success,
+body.seeker-unified .success-banner {
+    background: #edf9f2 !important;
+    border-color: #b7e4c8 !important;
+}
+
+body.seeker-unified .notif-item.unread {
+    background: #eef6ff !important;
+    border-color: #b7d2ff !important;
+}
+
+body.seeker-unified .timeline-step .t-dot.t-active {
+    background: var(--su-primary) !important;
+}
+
+body.seeker-unified .timeline-step .t-dot.t-done {
+    background: var(--su-success) !important;
+}
+
+body.seeker-unified .t-line {
+    border-left-color: #cfdcf0 !important;
+}
+
+body.seeker-unified .no-requests,
+body.seeker-unified .empty-state,
+body.seeker-unified .notif-empty {
+    background: var(--su-surface-soft) !important;
+    border: 1px dashed #c8d8ef !important;
+    border-radius: var(--su-radius) !important;
+}
+
+body.seeker-unified .pagination a,
+body.seeker-unified .pagination span {
+    border-radius: 10px;
+    border: 1px solid var(--su-border);
+}
+
+body.seeker-unified .pagination .active,
+body.seeker-unified .pagination a:hover {
+    background: var(--su-gradient) !important;
+    color: #fff !important;
+    border-color: transparent !important;
+}
+
+@media (max-width: 768px) {
+    body.seeker-unified .container {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+
+    body.seeker-unified .requests-header,
+    body.seeker-unified .results-header {
+        gap: 12px;
+    }
+
+    body.seeker-unified .filters-section,
+    body.seeker-unified .request-card,
+    body.seeker-unified .service-card,
+    body.seeker-unified .provider-card,
+    body.seeker-unified .section-card,
+    body.seeker-unified .card,
+    body.seeker-unified .result-card,
+    body.seeker-unified .error-card {
+        border-radius: 12px !important;
+    }
+}
