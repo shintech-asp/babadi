@@ -334,7 +334,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
 
 $avatar_image_url = '';
 if ($has_profile_image_column && !empty($user['profile_image'])) {
-    $avatar_image_url = $user['profile_image'];
+    // profile_image is a bare app-root-relative path — resolved to an absolute
+    // URL so this renders correctly even if this page is ever moved out of
+    // the app root. logo_url (the fallback below) is already a full external
+    // URL a provider pastes in, so it's left untouched.
+    $avatar_image_url = siteUrl($user['profile_image']);
 } elseif (isProvider() && !empty($provider['logo_url'])) {
     $avatar_image_url = $provider['logo_url'];
 }
@@ -881,7 +885,7 @@ include 'includes/header.php';
                     <span>Change Password</span>
                 </a>
                 <?php if (isProvider()): ?>
-                <a href="providers-dashboard.php" class="menu-item" style="margin-top: 20px; background: linear-gradient(135deg, #1a1f3a, #2d3561); color: white; border-radius: 8px;">
+                <a href="<?php echo appUrl('providers-dashboard.php'); ?>" class="menu-item" style="margin-top: 20px; background: linear-gradient(135deg, #1a1f3a, #2d3561); color: white; border-radius: 8px;">
                     <i class="fas fa-arrow-left"></i>
                     <span>Back to Dashboard</span>
                 </a>

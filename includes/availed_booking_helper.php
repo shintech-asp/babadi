@@ -199,3 +199,70 @@ if (!function_exists('acceptAvailedBooking')) {
         }
     }
 }
+
+// Extracted from provider/service-requests.php's own $_POST['accept_cancel_action']
+// === 'cancelled' branch, so a second caller (provider-portal/my-services.php's
+// field-tech self-service "let them decide" Accept/Decline) doesn't duplicate
+// this logic — same reasoning as acceptAvailedBooking() above.
+if (!function_exists('declineAvailedBooking')) {
+    function declineAvailedBooking(
+        PDO $db,
+        int $availId,
+        int $providerId,
+        ?int $changedBy = null,
+        string $changedByRole = 'provider',
+        string $reason = ''
+    ): array {
+        try {
+            $fetchStmt = $db->prepare(
+                "SELECT * FROM availed_services WHERE id = :id AND provider_id = :pid AND status = 'pending' LIMIT 1"
+            );
+            $fetchStmt->execute([':id' => $availId, ':pid' => $providerId]);
+            $booking = $fetchStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$booking) {
+                return ['ok' => false, 'error' => 'This request is no longer pending and cannot be updated.'];
+            }
+
+            $updateStmt = $db->prepare(
+                "UPDATE availed_services
+                 SET status = 'cancelled', is_read = 1, updated_at = NOW()
+                 WHERE id = :id AND provider_id = :pid AND status = 'pending'"
+            );
+            $updateStmt->execute([':id' => $availId, ':pid' => $providerId]);
+
+            if ($updateStmt->rowCount() <= 0) {
+                return ['ok' => false, 'error' => 'This request is no longer pending and cannot be updated.'];
+            }
+
+            $reasonText = $reason !== '' ? ' Reason: ' . $reason : '';
+            $notifMessage = 'Your service request for "' . ($booking['service_name'] ?? 'Service') . '" has been CANCELLED by the provider.' . $reasonText;
+
+            if (!empty($booking['seeker_user_id'])) {
+                notifySeekerForAvailedBooking(
+                    $db,
+                    (int)$booking['seeker_user_id'],
+                    $availId,
+                    $providerId,
+                    (string)($booking['service_name'] ?? ''),
+                    'cancelled',
+                    $notifMessage
+                );
+            }
+
+            appendAvailedStatusHistory(
+                $db,
+                $availId,
+                'pending',
+                'cancelled',
+                $changedBy,
+                $changedByRole,
+                $reason !== '' ? 'Service request cancelled. Reason: ' . $reason : 'Service request cancelled.'
+            );
+
+            return ['ok' => true, 'booking' => $booking];
+        } catch (Exception $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+}

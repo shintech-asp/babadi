@@ -301,7 +301,46 @@ if (isset($_SESSION['user_id'])) {
 
         /* ── Container ── */
         .container { max-width: 1120px; margin: 0 auto; padding: 40px 20px 60px; }
-        .content-grid { display: grid; grid-template-columns: 1fr 340px; gap: 28px; margin-bottom: 40px; }
+        .content-grid { display: grid; grid-template-columns: 1fr 340px; gap: 28px; margin-bottom: 40px; align-items: start; }
+
+        /* Sidebar stays visible alongside the main column while scrolling. */
+        .pd-sidebar { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 24px; }
+
+        /*
+          Services list moved here from the main column, as its own scrollable
+          sidebar card — pd- prefixed on purpose: assets/css/style.css (loaded
+          earlier on this page) already defines its own .service-card for a
+          different, unrelated layout, which can silently leak through onto
+          any element reusing that name (see CLAUDE.md's "Recent Work Log" for
+          the exact bug this caused on two other seeker pages). These pd-
+          classes don't exist anywhere else in the codebase.
+        */
+        .pd-svc-card { display: flex; flex-direction: column; max-height: 560px; }
+        .pd-svc-scroll { overflow-y: auto; flex: 1; margin: 0 -8px; padding: 0 8px; }
+        .pd-svc-item {
+            background: #fff;
+            border-radius: 12px;
+            padding: 14px 16px;
+            border: 1px solid #e4ece6;
+            border-left: 3px solid #1a6b3c;
+            margin-bottom: 12px;
+        }
+        .pd-svc-item:last-child { margin-bottom: 0; }
+        .pd-svc-name { font-size: 13.5px; font-weight: 700; color: #0d1f14; line-height: 1.35; margin-bottom: 5px; }
+        .pd-svc-price { font-size: 17px; font-weight: 800; color: #1a6b3c; letter-spacing: -0.3px; margin-bottom: 6px; }
+        .pd-svc-desc { font-size: 12px; color: #6b7280; line-height: 1.5; margin-bottom: 10px; }
+        .pd-svc-action {
+            background: #0d1f14; color: #fff;
+            padding: 9px; border-radius: 8px;
+            text-align: center; font-size: 12.5px; font-weight: 700;
+            transition: background 0.2s;
+            border: none; cursor: pointer; width: 100%;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        .pd-svc-action:hover { background: #1a6b3c; }
+        .pd-svc-scroll::-webkit-scrollbar { width: 6px; }
+        .pd-svc-scroll::-webkit-scrollbar-thumb { background: #d1dbd5; border-radius: 99px; }
+        .pd-svc-scroll::-webkit-scrollbar-track { background: transparent; }
 
         /* ── Section cards ── */
         .section-card {
@@ -368,57 +407,49 @@ if (isset($_SESSION['user_id'])) {
         .stat-box-label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
         .stat-box-icon { font-size: 13px; color: #1a6b3c; margin-bottom: 8px; }
 
-        /* ── Services ── */
-        .services-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
-        .service-card {
-            background: #fff;
-            border-radius: 14px;
-            padding: 22px 20px 18px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 4px 16px rgba(13,31,20,0.05);
-            border: 1px solid #e4ece6;
-            border-top: 3px solid #1a6b3c;
-            display: flex; flex-direction: column;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .service-card:hover { transform: translateY(-4px); box-shadow: 0 8px 32px rgba(13,31,20,0.12); }
-        .service-name  { font-size: 15px; font-weight: 700; color: #0d1f14; margin-bottom: 8px; line-height: 1.4; }
-        .service-price {
-            font-size: 26px; font-weight: 800; color: #1a6b3c;
-            margin-bottom: 10px; letter-spacing: -0.5px;
-        }
-        .service-desc  { font-size: 13px; color: #6b7280; line-height: 1.6; flex-grow: 1; margin-bottom: 16px; }
-        .service-action {
-            background: #0d1f14; color: white;
-            padding: 11px; border-radius: 9px;
-            text-align: center; font-size: 13px; font-weight: 700;
-            transition: background 0.2s, transform 0.15s;
-            border: none; cursor: pointer; width: 100%;
-            display: flex; align-items: center; justify-content: center; gap: 7px;
-        }
-        .service-action:hover { background: #1a6b3c; transform: translateY(-1px); }
 
-        /* ── Reviews ── */
-        .review-item {
-            padding: 18px 0;
-            border-bottom: 1px solid #f0f4f1;
+        /* ── Reviews ──
+           Horizontal-scroll carousel instead of a long stacked list, so a
+           provider with many reviews doesn't stretch the page — the row has
+           a fixed height and scrolls sideways (scroll-snap for a clean stop
+           on each card). pd- prefixed for the same collision-avoidance
+           reason as the services sidebar above. */
+        .pd-rev-scroll {
+            display: flex;
+            gap: 14px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+            scroll-snap-type: x proximity;
         }
-        .review-item:last-child { border-bottom: none; padding-bottom: 0; }
-        .review-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 12px; }
-        .reviewer-info { display: flex; align-items: center; gap: 12px; }
-        .reviewer-avatar {
-            width: 38px; height: 38px; border-radius: 50%;
+        .pd-rev-scroll::-webkit-scrollbar { height: 6px; }
+        .pd-rev-scroll::-webkit-scrollbar-thumb { background: #d1dbd5; border-radius: 99px; }
+        .pd-rev-scroll::-webkit-scrollbar-track { background: transparent; }
+        .pd-rev-card {
+            flex: 0 0 260px;
+            scroll-snap-align: start;
+            background: #fafbfa;
+            border: 1px solid #f0f4f1;
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .pd-rev-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 10px; }
+        .pd-rev-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .pd-rev-avatar {
+            width: 34px; height: 34px; border-radius: 50%;
             background: linear-gradient(135deg, #1a6b3c, #2d9a58);
             display: flex; align-items: center; justify-content: center;
-            font-size: 14px; font-weight: 700; color: white; flex-shrink: 0;
+            font-size: 13px; font-weight: 700; color: white; flex-shrink: 0;
         }
-        .reviewer-name { font-size: 14px; font-weight: 700; color: #0d1f14; }
-        .review-date { font-size: 12px; color: #9ca3af; margin-top: 2px; }
-        .review-stars { color: #f59e0b; font-size: 13px; white-space: nowrap; }
-        .review-score { font-size: 12px; color: #6b7280; margin-left: 5px; }
-        .review-text { font-size: 13.5px; color: #4b5563; line-height: 1.7; margin-top: 8px; }
-        .review-service-tag {
-            font-size: 11px; background: #edf6f1; color: #1a6b3c;
-            padding: 3px 9px; border-radius: 20px; margin-top: 8px;
+        .pd-rev-name { font-size: 13px; font-weight: 700; color: #0d1f14; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pd-rev-date { font-size: 11px; color: #9ca3af; margin-top: 1px; }
+        .pd-rev-stars { color: #f59e0b; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+        .pd-rev-text {
+            font-size: 12.5px; color: #4b5563; line-height: 1.6; margin-top: 4px;
+            display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .pd-rev-tag {
+            font-size: 10.5px; background: #edf6f1; color: #1a6b3c;
+            padding: 3px 9px; border-radius: 20px; margin-top: 10px;
             display: inline-block; font-weight: 600; border: 1px solid #c6e6d4;
         }
 
@@ -619,10 +650,16 @@ if (isset($_SESSION['user_id'])) {
 
         @media (max-width: 900px) {
             .content-grid { grid-template-columns: 1fr; }
+            /* Sticky only makes sense beside a taller main column — once the
+               sidebar stacks below it on narrow screens, pin it back to
+               normal flow and let its own scroll box (not the whole page)
+               stay capped at a shorter height. */
+            .pd-sidebar { position: static; }
+            .pd-svc-card { max-height: 360px; }
         }
         @media (max-width: 768px) {
             .provider-hero { padding: 40px 20px 52px; }
-            .services-grid { grid-template-columns: 1fr; }
+            .pd-rev-card { flex-basis: 220px; }
             .form-row { grid-template-columns: 1fr; }
             #mapPickeeLeaflet { height: 280px; }
             .stat-row { grid-template-columns: 1fr 1fr; }
@@ -711,9 +748,15 @@ if (isset($_SESSION['user_id'])) {
                                readonly style="background:#f0f0f0;cursor:not-allowed;">
                     </div>
 
+                    <!-- Inspection notice (shown only for services that require an on-site inspection first) -->
+                    <div id="inspectionNotice" class="pending-notice" style="display:none;background:#f5eef8;border-color:#d7bde2;">
+                        <i class="fas fa-magnifying-glass"></i>
+                        <span>This service requires an on-site inspection first. Pick a date below for the technician to inspect the site — the actual <strong>Working Date</strong> and <strong>final price</strong> will be proposed after inspection, and you'll get to agree or ask for changes before anything is charged.</span>
+                    </div>
+
                     <!-- Date -->
                     <div class="form-group">
-                        <label>Preferred Date <span class="req">*</span></label>
+                        <label id="dateFieldLabel">Preferred Date <span class="req">*</span></label>
                         <p style="font-size:12px;color:#888;margin-bottom:8px;">
                             <i class="fas fa-info-circle" style="color:var(--primary);"></i>
                             Earliest available date is <strong id="earliestDateLabel"></strong> (<?php echo (int)$provider_preparing_days; ?> day<?php echo $provider_preparing_days === 1 ? '' : 's'; ?> from today).
@@ -764,51 +807,69 @@ if (isset($_SESSION['user_id'])) {
                                placeholder="Auto-filled from selected service">
                     </div>
 
-                    <!-- Payment Method -->
-                    <div class="form-group">
-                        <label>Payment Method <span class="req">*</span></label>
-                        <p style="font-size:12px;color:#888;margin-bottom:8px;">
-                            <i class="fas fa-info-circle" style="color:var(--primary);"></i>
-                            Choose now — you'll pay <strong>after</strong> the provider accepts.
-                        </p>
-                        <div style="display:flex;gap:10px;margin-top:4px;">
-                            <button type="button" id="btnFull" onclick="selectPayment('full_payment')"
-                                style="flex:1;padding:12px;border:2px solid #e2e8f0;border-radius:10px;background:white;cursor:pointer;font-size:14px;font-weight:600;font-family:inherit;color:#64748b;transition:all 0.2s;text-align:center;">
-                                <i class="fas fa-money-bill-wave" style="display:block;font-size:20px;margin-bottom:4px;"></i>
-                                Full Payment
-                            </button>
-                            <button type="button" id="btnDown" onclick="selectPayment('downpayment')"
-                                style="flex:1;padding:12px;border:2px solid #e2e8f0;border-radius:10px;background:white;cursor:pointer;font-size:14px;font-weight:600;font-family:inherit;color:#64748b;transition:all 0.2s;text-align:center;">
-                                <i class="fas fa-hand-holding-usd" style="display:block;font-size:20px;margin-bottom:4px;"></i>
-                                Downpayment
-                            </button>
+                    <!-- Payment Method — hidden entirely for inspection-required services:
+                         the price shown is only an estimate until a technician inspects
+                         on-site and the seeker agrees to a final price (see CLAUDE.md's
+                         "Two-date Inspection → Agreement → Working Date flow"). Payment
+                         is collected later via the normal Pay Now flow once the booking
+                         re-enters 'accepted' with the agreed price. -->
+                    <div id="paymentMethodSection">
+                        <div class="form-group">
+                            <label>Payment Method <span class="req">*</span></label>
+                            <p style="font-size:12px;color:#888;margin-bottom:8px;">
+                                <i class="fas fa-info-circle" style="color:var(--primary);"></i>
+                                Choose now — you'll pay <strong>after</strong> the provider accepts.
+                            </p>
+                            <div style="display:flex;gap:10px;margin-top:4px;">
+                                <button type="button" id="btnFull" onclick="selectPayment('full_payment')"
+                                    style="flex:1;padding:12px;border:2px solid #e2e8f0;border-radius:10px;background:white;cursor:pointer;font-size:14px;font-weight:600;font-family:inherit;color:#64748b;transition:all 0.2s;text-align:center;">
+                                    <i class="fas fa-money-bill-wave" style="display:block;font-size:20px;margin-bottom:4px;"></i>
+                                    Full Payment
+                                </button>
+                                <button type="button" id="btnDown" onclick="selectPayment('downpayment')"
+                                    style="flex:1;padding:12px;border:2px solid #e2e8f0;border-radius:10px;background:white;cursor:pointer;font-size:14px;font-weight:600;font-family:inherit;color:#64748b;transition:all 0.2s;text-align:center;">
+                                    <i class="fas fa-hand-holding-usd" style="display:block;font-size:20px;margin-bottom:4px;"></i>
+                                    Downpayment
+                                </button>
+                            </div>
+                            <input type="hidden" name="payment_method" id="paymentMethodHidden" value="">
                         </div>
-                        <input type="hidden" name="payment_method" id="paymentMethodHidden" value="">
+
+                        <!-- Downpayment fields -->
+                        <div id="downpaymentFields" style="display:none;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+                            <p style="font-size:12px;color:#92400e;font-weight:600;margin-bottom:10px;">
+                                <i class="fas fa-info-circle" style="margin-right:5px;"></i>
+                                Minimum downpayment: <strong id="dpRequirementLabel">—</strong>. You may pay more.
+                            </p>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <div>
+                                    <label style="font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:4px;">Downpayment Amount (&#8369;) <span style="color:#e74c3c;">*</span></label>
+                                    <input type="number" id="dpDueDisplay" name="downpayment_amount"
+                                        min="0" step="0.01" placeholder="Enter downpayment amount"
+                                        oninput="recalcDPFromInput(this.value)"
+                                        style="width:100%;padding:10px 14px;border:1.5px solid #fde68a;border-radius:8px;font-size:14px;font-weight:700;color:#92400e;background:#fff;box-sizing:border-box;">
+                                </div>
+                                <div>
+                                    <label style="font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:4px;">Remaining Balance (&#8369;)</label>
+                                    <input type="text" id="remainingAmount"
+                                        style="width:100%;padding:10px 14px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;color:#555;background:#f0f0f0;" readonly placeholder="Auto-calculated">
+                                </div>
+                            </div>
+                            <div id="dpWarning" style="display:none;">
+                                <span id="dpWarningText"></span>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Downpayment fields -->
-                    <div id="downpaymentFields" style="display:none;background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
-                        <p style="font-size:12px;color:#92400e;font-weight:600;margin-bottom:10px;">
-                            <i class="fas fa-info-circle" style="margin-right:5px;"></i>
-                            Minimum downpayment: <strong id="dpRequirementLabel">—</strong>. You may pay more.
+                    <!-- Shown instead of Payment Method when the service requires inspection -->
+                    <div id="inspectionPaymentNotice" style="display:none;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
+                        <p style="font-size:13px;color:#1e40af;font-weight:600;margin:0 0 4px;">
+                            <i class="fas fa-clipboard-check" style="margin-right:6px;"></i>
+                            No payment needed yet
                         </p>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                            <div>
-                                <label style="font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:4px;">Downpayment Amount (&#8369;) <span style="color:#e74c3c;">*</span></label>
-                                <input type="number" id="dpDueDisplay" name="downpayment_amount"
-                                    min="0" step="0.01" placeholder="Enter downpayment amount"
-                                    oninput="recalcDPFromInput(this.value)"
-                                    style="width:100%;padding:10px 14px;border:1.5px solid #fde68a;border-radius:8px;font-size:14px;font-weight:700;color:#92400e;background:#fff;box-sizing:border-box;">
-                            </div>
-                            <div>
-                                <label style="font-size:12px;font-weight:600;color:#444;display:block;margin-bottom:4px;">Remaining Balance (&#8369;)</label>
-                                <input type="text" id="remainingAmount"
-                                    style="width:100%;padding:10px 14px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;color:#555;background:#f0f0f0;" readonly placeholder="Auto-calculated">
-                            </div>
-                        </div>
-                        <div id="dpWarning" style="display:none;">
-                            <span id="dpWarningText"></span>
-                        </div>
+                        <p style="font-size:12px;color:#1e40af;margin:0;">
+                            A technician will inspect on-site and propose a final price. You'll choose a payment method after you agree to it.
+                        </p>
                     </div>
 
                     <!-- Location -->
@@ -1094,27 +1155,76 @@ chdir(dirname(__DIR__));
                         <p class="about-text"><?php echo nl2br(htmlspecialchars($provider['description'] ?? 'No description available.')); ?></p>
                     </div>
 
-                    <!-- Services -->
+                    <!-- Reviews — horizontal-scroll carousel, not a long stacked list. -->
+                    <?php if(count($reviews) > 0): ?>
                     <div class="section-card" style="margin-top:24px;">
+                        <div class="section-eyebrow">Feedback</div>
+                        <h2 class="section-title">
+                            <i class="fas fa-star"></i> Customer Reviews
+                            <span style="font-size:13px;font-weight:500;color:#9ca3af;margin-left:auto;"><?php echo count($reviews); ?> review<?php echo count($reviews) !== 1 ? 's' : ''; ?> &middot; scroll for more &rarr;</span>
+                        </h2>
+                        <div class="pd-rev-scroll">
+                            <?php foreach($reviews as $review): ?>
+                            <div class="pd-rev-card">
+                                <div class="pd-rev-header">
+                                    <div class="pd-rev-who">
+                                        <div class="pd-rev-avatar"><?php echo strtoupper(substr($review['first_name'],0,1)); ?></div>
+                                        <div style="min-width:0;">
+                                            <div class="pd-rev-name"><?php echo htmlspecialchars($review['first_name'].' '.$review['last_name']); ?></div>
+                                            <div class="pd-rev-date"><?php echo date('M d, Y', strtotime($review['created_at'])); ?></div>
+                                        </div>
+                                    </div>
+                                    <div class="pd-rev-stars">
+                                        <?php for($i=1;$i<=5;$i++): ?><i class="fas fa-star" style="color:<?php echo $i<=$review['rating']?'#f59e0b':'#e5e7eb'; ?>;"></i><?php endfor; ?>
+                                    </div>
+                                </div>
+                                <?php if(!empty($review['feedback'])): ?>
+                                <div class="pd-rev-text"><?php echo htmlspecialchars($review['feedback']); ?></div>
+                                <?php endif; ?>
+                                <?php if(!empty($review['feedback_image'])): ?>
+                                <div style="margin-top:10px;">
+                                    <img src="<?php echo siteUrl($review['feedback_image']); ?>"
+                                         alt="Review photo"
+                                         style="width:100%;max-height:120px;border-radius:8px;object-fit:cover;border:1px solid #e5e7eb;cursor:pointer;"
+                                         onclick="this.style.maxHeight=this.style.maxHeight==='none'?'120px':'none';this.style.objectFit=this.style.objectFit==='contain'?'cover':'contain';">
+                                </div>
+                                <?php endif; ?>
+                                <?php if(!empty($review['service_name'])): ?>
+                                <div class="pd-rev-tag"><i class="fas fa-tag" style="font-size:9px;margin-right:4px;"></i><?php echo htmlspecialchars($review['service_name']); ?></div>
+                                <?php endif; ?>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Sidebar -->
+                <div class="pd-sidebar">
+                    <!-- Services — moved here from the main column as a compact,
+                         scrollable list so a provider with many services doesn't
+                         make the page itself long; stays visible beside the main
+                         content as you scroll (see .pd-sidebar's position:sticky). -->
+                    <div class="section-card pd-svc-card">
                         <div class="section-eyebrow">What We Offer</div>
                         <h2 class="section-title">
                             <i class="fas fa-shield-alt"></i> Services
                             <span style="font-size:13px;font-weight:500;color:#9ca3af;margin-left:auto;"><?php echo count($services); ?> available</span>
                         </h2>
                         <?php if(count($services) > 0): ?>
-                        <div class="services-grid">
+                        <div class="pd-svc-scroll">
                             <?php foreach($services as $service):
                                 $ps       = json_decode($service['payment_settings'] ?? '{}', true) ?? [];
                                 $ps_mode  = $ps['dp_mode']    ?? 'percent';
                                 $ps_pct   = (float)($ps['dp_percent'] ?? 50);
                                 $ps_fixed = (float)($ps['dp_fixed']   ?? 0);
                             ?>
-                            <div class="service-card">
-                                <div class="service-name"><?php echo htmlspecialchars($service['service_name']); ?></div>
-                                <div class="service-price">&#8369;<?php echo number_format($service['price'],2); ?></div>
-                                <div class="service-desc"><?php $d = $service['description'] ?? ''; echo htmlspecialchars($d ? mb_strimwidth($d, 0, 110, '…') : 'No description provided.'); ?></div>
-                                <button class="service-action"
-                                    onclick="openModal('<?php echo htmlspecialchars(addslashes($service['service_name'])); ?>','<?php echo $service['id']; ?>','<?php echo $ps_mode; ?>',<?php echo $ps_pct; ?>,<?php echo $ps_fixed; ?>,<?php echo (float)$service['price']; ?>)">
+                            <div class="pd-svc-item" id="service-card-<?php echo (int)$service['id']; ?>">
+                                <div class="pd-svc-name"><?php echo htmlspecialchars($service['service_name']); ?></div>
+                                <div class="pd-svc-price">&#8369;<?php echo number_format($service['price'],2); ?></div>
+                                <div class="pd-svc-desc"><?php $d = $service['description'] ?? ''; echo htmlspecialchars($d ? mb_strimwidth($d, 0, 70, '…') : 'No description provided.'); ?></div>
+                                <button class="pd-svc-action"
+                                    onclick="openModal('<?php echo htmlspecialchars(addslashes($service['service_name'])); ?>','<?php echo $service['id']; ?>','<?php echo $ps_mode; ?>',<?php echo $ps_pct; ?>,<?php echo $ps_fixed; ?>,<?php echo (float)$service['price']; ?>,<?php echo !empty($service['requires_inspection']) ? 'true' : 'false'; ?>)">
                                     <i class="fas fa-paper-plane"></i> Request Service
                                 </button>
                             </div>
@@ -1125,51 +1235,7 @@ chdir(dirname(__DIR__));
                         <?php endif; ?>
                     </div>
 
-                    <!-- Reviews -->
-                    <?php if(count($reviews) > 0): ?>
-                    <div class="section-card" style="margin-top:24px;">
-                        <div class="section-eyebrow">Feedback</div>
-                        <h2 class="section-title"><i class="fas fa-star"></i> Customer Reviews</h2>
-                        <?php foreach($reviews as $review): ?>
-                        <div class="review-item">
-                            <div class="review-header">
-                                <div class="reviewer-info">
-                                    <div class="reviewer-avatar"><?php echo strtoupper(substr($review['first_name'],0,1)); ?></div>
-                                    <div>
-                                        <div class="reviewer-name"><?php echo htmlspecialchars($review['first_name'].' '.$review['last_name']); ?></div>
-                                        <div class="review-date"><?php echo date('M d, Y', strtotime($review['created_at'])); ?></div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <div class="review-stars">
-                                        <?php for($i=1;$i<=5;$i++): ?><i class="fas fa-star" style="color:<?php echo $i<=$review['rating']?'#f59e0b':'#e5e7eb'; ?>;"></i><?php endfor; ?>
-                                        <span class="review-score"><?php echo $review['rating']; ?>/5</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <?php if(!empty($review['feedback'])): ?>
-                            <div class="review-text"><?php echo htmlspecialchars($review['feedback']); ?></div>
-                            <?php endif; ?>
-                            <?php if(!empty($review['feedback_image'])): ?>
-                            <div style="margin-top:10px;">
-                                <img src="<?php echo siteUrl($review['feedback_image']); ?>"
-                                     alt="Review photo"
-                                     style="max-width:100%;max-height:240px;border-radius:10px;object-fit:cover;border:1px solid #e5e7eb;cursor:pointer;"
-                                     onclick="this.style.maxHeight=this.style.maxHeight==='none'?'240px':'none';">
-                            </div>
-                            <?php endif; ?>
-                            <?php if(!empty($review['service_name'])): ?>
-                            <div class="review-service-tag"><i class="fas fa-tag" style="font-size:9px;margin-right:4px;"></i><?php echo htmlspecialchars($review['service_name']); ?></div>
-                            <?php endif; ?>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <?php endif; ?>
-                </div>
-
-                <!-- Sidebar -->
-                <div>
-                    <div class="section-card">
+                    <div class="section-card" id="pd-contact">
                         <div class="section-eyebrow">Get in Touch</div>
                         <h2 class="section-title"><i class="fas fa-address-card"></i> Contact</h2>
                         <div class="info-item">
@@ -1190,8 +1256,8 @@ chdir(dirname(__DIR__));
                         <?php endif; ?>
                         <div class="action-buttons">
                             <?php if(isset($_SESSION['user_id'])): ?>
-                            <a href="<?php echo appUrl('messages.php'); ?>?to=<?php echo $provider['user_id']; ?>" class="btn btn-secondary">
-                                <i class="fas fa-comment-dots"></i> Send Message
+                            <a href="<?php echo appUrl('messages.php'); ?>" class="btn btn-secondary" title="Chat opens once you have an active booking with this provider">
+                                <i class="fas fa-comment-dots"></i> My Messages
                             </a>
                             <?php else: ?>
                             <a href="<?php echo appUrl('login.php'); ?>?redirect=provider-details.php?id=<?php echo $provider_id; ?>" class="btn btn-secondary">
@@ -1242,7 +1308,7 @@ chdir(dirname(__DIR__));
     const WORKING_SLOT_MINUTES = <?php echo (int)$provider_working_slot_minutes; ?>;
     const SERVICE_CONTRACTS = <?php echo json_encode($service_contract_map, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
     let calYear, calMonth, selectedDate = null;
-    let dpMode = '', dpPct = 0, dpFixed = 0, servicePrice = 0;
+    let dpMode = '', dpPct = 0, dpFixed = 0, servicePrice = 0, formRequiresInspection = false;
     let seekerSigCanvas = null;
     let seekerSigCtx = null;
     let seekerSigDrawing = false;
@@ -1450,7 +1516,7 @@ chdir(dirname(__DIR__));
         closeSeekerSigConfirm();
     });
 
-    function openModal(sName, sId, mode, pct, fixed, price) {
+    function openModal(sName, sId, mode, pct, fixed, price, requiresInspection) {
         if (!<?php echo isset($_SESSION['user_id']) ? 'true' : 'false'; ?>) {
             window.location.href = <?php echo json_encode(appUrl('login.php?redirect=provider-details.php?id=' . $provider_id)); ?>;
             return;
@@ -1461,6 +1527,30 @@ chdir(dirname(__DIR__));
         document.getElementById('formServiceId').value   = sId   || '';
         document.getElementById('formServiceName').value = sName || '';
         document.getElementById('formServiceLabel').textContent = sName ? sName : 'Fill in your details below';
+        const inspectionNotice = document.getElementById('inspectionNotice');
+        const dateFieldLabel = document.getElementById('dateFieldLabel');
+        const totalAmountLabel = document.querySelector('label[for="totalAmount"]') || document.getElementById('totalAmount')?.closest('.form-group')?.querySelector('label');
+        formRequiresInspection = !!requiresInspection;
+        const paymentMethodSection = document.getElementById('paymentMethodSection');
+        const inspectionPaymentNotice = document.getElementById('inspectionPaymentNotice');
+        if (requiresInspection) {
+            inspectionNotice.style.display = 'flex';
+            dateFieldLabel.innerHTML = 'Preferred Inspection Date <span class="req">*</span>';
+            if (totalAmountLabel) totalAmountLabel.textContent = 'Estimated Amount (PHP) — final price confirmed after inspection';
+            // No payment method to choose yet — the estimate isn't final until
+            // a technician inspects on-site (see the block comment above the
+            // #paymentMethodSection markup).
+            paymentMethodSection.style.display = 'none';
+            inspectionPaymentNotice.style.display = 'block';
+            document.getElementById('paymentMethodHidden').value = '';
+            document.getElementById('downpaymentFields').style.display = 'none';
+        } else {
+            inspectionNotice.style.display = 'none';
+            dateFieldLabel.innerHTML = 'Preferred Date <span class="req">*</span>';
+            if (totalAmountLabel) totalAmountLabel.textContent = 'Total Amount (PHP)';
+            paymentMethodSection.style.display = '';
+            inspectionPaymentNotice.style.display = 'none';
+        }
         setContractForService(sId, sName);
         document.getElementById('serviceAgreementAck').value = '0';
         document.getElementById('termsCheck').checked = false;
@@ -1528,10 +1618,13 @@ chdir(dirname(__DIR__));
         if (!date) missing.push('Preferred date');
         if (!time) missing.push('Preferred time');
         if (!amt || parseFloat(amt) <= 0) missing.push('Service selection');
-        if (!pm) missing.push('Payment method');
+        // No payment method to validate for inspection-required services —
+        // the price is only an estimate until the technician inspects.
+        if (!formRequiresInspection && !pm) missing.push('Payment method');
         if (!addr) missing.push('Address/location');
 
-        if (missing.length === 5) {
+        const requiredFieldCount = formRequiresInspection ? 4 : 5;
+        if (missing.length === requiredFieldCount) {
             showFormError('The form is blank. Please complete all required fields before continuing.');
             return false;
         }
@@ -1545,7 +1638,7 @@ chdir(dirname(__DIR__));
             return false;
         }
 
-        if (pm === 'downpayment') {
+        if (!formRequiresInspection && pm === 'downpayment') {
             const total = parseFloat(document.getElementById('totalAmount').value) || 0;
             const minDP = getMinDP(total);
             const dp    = parseFloat(document.getElementById('dpDueDisplay').value) || 0;
@@ -2072,6 +2165,22 @@ chdir(dirname(__DIR__));
     });
     document.getElementById('mapPickeeModal').addEventListener('click', function(e) { if (e.target === this) closeMapModal(); });
     document.addEventListener('click', function(e) { const wrap = document.getElementById('mapSuggestions'); const inp = document.getElementById('mapSeaechInput'); if (wrap && inp && !wrap.contains(e.target) && e.target !== inp) hideSuggestions(); });
+
+    // Scroll to and highlight a specific service when arriving via ?highlight=<service_id>
+    // (used by the CRM "Customer Outreach" email links).
+    (function () {
+        const params = new URLSearchParams(window.location.search);
+        const highlightId = params.get('highlight');
+        if (!highlightId) return;
+        const card = document.getElementById('service-card-' + highlightId);
+        if (!card) return;
+        card.style.transition = 'box-shadow .3s ease, border-color .3s ease';
+        card.style.border = '2px solid #2E8B57';
+        card.style.boxShadow = '0 0 0 4px rgba(46,139,87,0.18)';
+        setTimeout(function () {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 300);
+    })();
     </script>
 </body>
 </html>

@@ -7,7 +7,7 @@ $p = current_provider();
 
 $id = (int)req_inp('id', 'Listing ID');
 
-$stmt = db()->prepare('SELECT * FROM service_listings WHERE id = :id AND provider_id = :pid');
+$stmt = db()->prepare('SELECT * FROM services WHERE id = :id AND provider_id = :pid');
 $stmt->execute([':id' => $id, ':pid' => $p['id']]);
 $listing = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -20,8 +20,8 @@ $params = [':id' => $id, ':pid' => $p['id']];
 
 $title = inp('title');
 if ($title !== null) {
-    $fields[] = 'title = :title';
-    $params[':title'] = trim($title);
+    $fields[] = 'service_name = :service_name';
+    $params[':service_name'] = trim($title);
 }
 
 $description = inp('description');
@@ -38,8 +38,13 @@ if ($price !== null) {
 
 $pricing_type = inp('pricing_type');
 if ($pricing_type !== null) {
+    $pricing_type = trim($pricing_type);
+    // Must match services.pricing_type's actual ENUM — see store.php.
+    if (!in_array($pricing_type, ['fixed', 'per_sqft', 'hourly', 'custom'], true)) {
+        fail('Pricing type must be one of: fixed, per_sqft, hourly, custom.');
+    }
     $fields[] = 'pricing_type = :pricing_type';
-    $params[':pricing_type'] = trim($pricing_type);
+    $params[':pricing_type'] = $pricing_type;
 }
 
 $category_id = inp('category_id');
@@ -52,6 +57,26 @@ $is_emergency_available = inp('is_emergency_available');
 if ($is_emergency_available !== null) {
     $fields[] = 'is_emergency_available = :is_emergency_available';
     $params[':is_emergency_available'] = $is_emergency_available ? 1 : 0;
+}
+
+$is_eco_friendly = inp('is_eco_friendly');
+if ($is_eco_friendly !== null) {
+    $fields[] = 'is_eco_friendly = :is_eco_friendly';
+    $params[':is_eco_friendly'] = $is_eco_friendly ? 1 : 0;
+}
+
+// Non-fixed pricing can't be charged upfront — force requires_inspection on
+// regardless of what was posted, using whichever pricing_type is in effect
+// after this update (the new value if provided, else the listing's current
+// one). Mirrors provider/services.php's add/edit handlers.
+$effectivePricingType = $pricing_type ?? $listing['pricing_type'];
+$requires_inspection = inp('requires_inspection');
+if ($effectivePricingType !== 'fixed') {
+    $fields[] = 'requires_inspection = :requires_inspection';
+    $params[':requires_inspection'] = 1;
+} elseif ($requires_inspection !== null) {
+    $fields[] = 'requires_inspection = :requires_inspection';
+    $params[':requires_inspection'] = $requires_inspection ? 1 : 0;
 }
 
 $status = inp('status');
@@ -126,8 +151,8 @@ if (empty($fields)) {
     fail('No fields provided to update');
 }
 
-$sql = 'UPDATE service_listings SET ' . implode(', ', $fields) . ' WHERE id = :id AND provider_id = :pid';
+$sql = 'UPDATE services SET ' . implode(', ', $fields) . ' WHERE id = :id AND provider_id = :pid';
 $stmt = db()->prepare($sql);
 $stmt->execute($params);
 
-ok(['message' => 'Listing updated']);
+ok(['data' => ['message' => 'Listing updated']]);

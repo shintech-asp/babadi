@@ -79,13 +79,20 @@ if (isset($_SESSION['user_id']) && $_hdr_db) {
         }
     } catch (Exception $e) {}
 
-    // Message notifications
+    // Message notifications — messages.request_id scopes each message to
+    // one availed_services booking (transaction-scoped chat; see
+    // CLAUDE.md's "Recent Work Log"). This previously joined on columns
+    // (messages.provider_id / seeker_user_id) that don't exist on that
+    // table at all, so it silently produced zero results forever — caught
+    // by the try/catch below and never surfaced.
     try {
         $m = $_hdr_db->prepare("
-            SELECT m.id, m.message, m.is_read, m.created_at, p.company_name, p.id AS pid
+            SELECT m.id, m.message, m.is_read, m.created_at, m.request_id AS booking_id,
+                   p.company_name, p.id AS pid
             FROM   messages m
-            JOIN   providers p ON m.provider_id = p.id
-            WHERE  m.seeker_user_id = :u
+            JOIN   availed_services a ON a.id = m.request_id
+            JOIN   providers p ON p.id = a.provider_id
+            WHERE  m.receiver_id = :u
             ORDER  BY m.created_at DESC LIMIT 20
         ");
         $m->execute([':u' => $_buid]);
@@ -96,7 +103,7 @@ if (isset($_SESSION['user_id']) && $_hdr_db) {
                 'body'       => mb_substr($r['message'], 0, 70) . (mb_strlen($r['message']) > 70 ? '…' : ''),
                 'is_read'    => (bool)$r['is_read'],
                 'created_at' => $r['created_at'],
-                'link'       => appUrl('provider-details.php') . '?id=' . (int)$r['pid'],
+                'link'       => appUrl('messages.php') . '?booking=' . (int)$r['booking_id'],
                 'icon'       => 'fa-comment-dots',
                 'color'      => '#8e44ad',
             ];
@@ -120,7 +127,14 @@ $messages_url = appUrl('messages.php');
 $profile_url = appUrl('profile.php');
 $logout_url = appUrl('logout.php');
 $my_requests_url = appUrl('my-requests.php');
-$request_service_url = appUrl('request-service.php');
+// request-service.php is a POST-only processing endpoint (saves the booking
+// after a provider's own request form submits) — it was never meant to be
+// linked to directly. Visiting it via a plain GET click (no POST body) always
+// failed its own validation and redirected to provider-details.php?id=0,
+// which itself redirects to providers.php — so this nav button silently
+// landed on the exact same page as clicking "Providers", every time.
+// Points at the real "browse services" page instead.
+$request_service_url = appUrl('listings.php');
 $provider_dashboard_active = in_array($current_page, ['dashboard', 'providers-dashboard'], true);
 
 ?>
@@ -242,13 +256,13 @@ $provider_dashboard_active = in_array($current_page, ['dashboard', 'providers-da
 
                 <?php if (!$hide_discovery_links): ?>
                 <li>
-                    <a href="<?php echo appUrl('listings.php'); ?>" class="<?php echo $current_page == 'listings' ? 'active' : ''; ?>">
-                        <i class="fas fa-search"></i> Find Services
+                    <a href="<?php echo appUrl('providers.php'); ?>" class="<?php echo $current_page == 'providers' ? 'active' : ''; ?>">
+                        <i class="fas fa-building"></i> Providers
                     </a>
                 </li>
                 <li>
-                    <a href="<?php echo appUrl('providers.php'); ?>" class="<?php echo $current_page == 'providers' ? 'active' : ''; ?>">
-                        <i class="fas fa-building"></i> Providers
+                    <a href="<?php echo appUrl('recommend.php'); ?>" class="<?php echo $current_page == 'recommend' ? 'active' : ''; ?>">
+                        <i class="fas fa-wand-magic-sparkles"></i> Find My Match
                     </a>
                 </li>
                 <?php endif; ?>
@@ -272,8 +286,8 @@ $provider_dashboard_active = in_array($current_page, ['dashboard', 'providers-da
                             </a>
                         </li>
                         <li>
-                            <a href="<?php echo $request_service_url; ?>" class="btn-primary">
-                                <i class="fas fa-calendar-plus"></i> Request Service
+                            <a href="<?php echo $request_service_url; ?>" class="btn-primary <?php echo $current_page == 'listings' ? 'active' : ''; ?>">
+                                <i class="fas fa-calendar-plus"></i> Services
                             </a>
                         </li>
                     <?php endif; ?>
@@ -382,7 +396,7 @@ $provider_dashboard_active = in_array($current_page, ['dashboard', 'providers-da
                         <a href="javascript:void(0)" class="user-name">
                             <div class="user-avatar">
                                 <?php if (!empty($header_avatar_url)): ?>
-                                    <img src="<?php echo htmlspecialchars($header_avatar_url); ?>" alt="Profile Photo" class="user-avatar-img">
+                                    <img src="<?php echo htmlspecialchars(siteUrl($header_avatar_url)); ?>" alt="Profile Photo" class="user-avatar-img">
                                 <?php else: ?>
                                     <?php
                                     $initials = '';

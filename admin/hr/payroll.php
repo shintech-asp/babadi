@@ -82,8 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'approve
 }
 
 // ── Fetch payroll list ────────────────────────────────────────
-$payrolls = $db->query("SELECT p.*, e.first_name, e.last_name, e.employee_code, e.position FROM payroll p JOIN employees e ON p.employee_id=e.id ORDER BY p.created_at DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
-$employees = $db->query("SELECT id,employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
+// employees has no employee_code column — employee_id is the real code column.
+$payrolls = $db->query("SELECT p.*, e.first_name, e.last_name, e.employee_id AS employee_code, e.position FROM payroll p JOIN employees e ON p.employee_id=e.id ORDER BY p.created_at DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+$employees = $db->query("SELECT id,employee_id AS employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
 
 $active_menu = 'payroll';
 ?>

@@ -8,14 +8,14 @@ $id = (int)req_inp('id', 'Listing ID');
 
 $db = db();
 
-$stmt = $db->prepare('SELECT id FROM service_listings WHERE id = :id AND provider_id = :pid');
+$stmt = $db->prepare('SELECT id FROM services WHERE id = :id AND provider_id = :pid');
 $stmt->execute([':id' => $id, ':pid' => $p['id']]);
 
 if (!$stmt->fetch()) {
     fail('Listing not found', 404);
 }
 
-$upd = $db->prepare('UPDATE service_listings SET status = \'inactive\' WHERE id = :id AND provider_id = :pid');
+$upd = $db->prepare('UPDATE services SET status = \'inactive\' WHERE id = :id AND provider_id = :pid');
 $upd->execute([':id' => $id, ':pid' => $p['id']]);
 
-ok(['message' => 'Listing removed']);
+ok(['data' => ['message' => 'Listing removed']]);

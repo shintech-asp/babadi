@@ -34,8 +34,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'add') {
         $error = 'Please enter the custom position title.';
     } elseif (!$fn || !$ln || !$email) { $error = 'First name, last name and email are required.'; }
     else {
-        // Generate employee code
-        $last = $db->query("SELECT employee_code FROM employees ORDER BY id DESC LIMIT 1")->fetchColumn();
+        // Generate employee code. employees has no separate "code" column —
+        // employee_id (varchar UNIQUE) IS the human-readable code column
+        // (existing rows look like "EMP-102-7719"); the old employee_code
+        // reference here pointed at a column that doesn't exist at all.
+        $last = $db->query("SELECT employee_id FROM employees ORDER BY id DESC LIMIT 1")->fetchColumn();
         $num  = $last ? ((int)substr($last,3) + 1) : 1;
         $code = 'EMP' . str_pad($num, 4, '0', STR_PAD_LEFT);
         // Generate QR token
@@ -45,15 +48,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'add') {
         $hash      = password_hash($temp_pass, PASSWORD_DEFAULT);
 
         try {
-            $ins = $db->prepare("INSERT INTO employees (employee_code,first_name,last_name,email,phone,position,department,employment_type,date_hired,basic_salary,sss_no,philhealth_no,pagibig_no,tin_no,qr_token) VALUES(:ec,:fn,:ln,:em,:ph,:pos,:dept,:et,:dh,:sal,:sss,:phil,:pag,:tin,:qr)");
+            // date_hired -> hire_date: employees has no date_hired column.
+            $ins = $db->prepare("INSERT INTO employees (employee_id,first_name,last_name,email,phone,position,department,employment_type,hire_date,basic_salary,sss_no,philhealth_no,pagibig_no,tin_no,qr_token) VALUES(:ec,:fn,:ln,:em,:ph,:pos,:dept,:et,:dh,:sal,:sss,:phil,:pag,:tin,:qr)");
             $ins->execute([':ec'=>$code,':fn'=>$fn,':ln'=>$ln,':em'=>$email,':ph'=>$phone,':pos'=>$pos,':dept'=>$dept,':et'=>$type,':dh'=>$hired,':sal'=>$sal,':sss'=>$sss,':phil'=>$phil,':pag'=>$pag,':tin'=>$tin,':qr'=>$qr_token]);
             $emp_id = $db->lastInsertId();
 
             // Create admin_users entry with department = hr
             $admin_ins = $db->prepare("INSERT INTO admin_users (username,email,full_name,role,department,password_hash,temp_password,must_change_password,status) VALUES(:u,:e,:n,'hr','hr',:h,:tp,1,'active')");
             $admin_ins->execute([':u'=>strtolower($fn[0].$ln),'e'=>$email,':n'=>"$fn $ln",':h'=>$hash,':tp'=>$temp_pass]);
-            $admin_uid = $db->lastInsertId();
-            $db->prepare("UPDATE employees SET admin_user_id=:aid WHERE id=:id")->execute([':aid'=>$admin_uid,':id'=>$emp_id]);
+            // Note: employees has no admin_user_id column to link back to the
+            // admin_users row just created (a UPDATE against it here always
+            // threw and was silently swallowed below, making Add Employee
+            // report "Error" on every submission even though both rows were
+            // actually inserted). No code reads that link, so it's dropped
+            // rather than invented — the employees row and its admin_users
+            // login are still both created correctly.
 
             // Email
             $subject = "Welcome to Pestify — Your Employee Account";
@@ -76,7 +85,7 @@ $search = trim($_GET['q'] ?? '');
 $dfilter = $_GET['dept'] ?? '';
 $sql = "SELECT * FROM employees WHERE 1=1";
 $params = [];
-if ($search) { $sql .= " AND (first_name LIKE :q OR last_name LIKE :q OR employee_code LIKE :q OR email LIKE :q)"; $params[':q'] = "%$search%"; }
+if ($search) { $sql .= " AND (first_name LIKE :q OR last_name LIKE :q OR employee_id LIKE :q OR email LIKE :q)"; $params[':q'] = "%$search%"; }
 if ($dfilter) { $sql .= " AND department=:dept"; $params[':dept'] = $dfilter; }
 $sql .= " ORDER BY created_at DESC";
 $stmt = $db->prepare($sql); $stmt->execute($params);
@@ -171,7 +180,7 @@ tbody tr:last-child td{border-bottom:none}tbody tr:hover{background:#fafbfc}
         <?php if (empty($employees)): ?><tr><td colspan="9" style="text-align:center;padding:50px;color:var(--muted)"><i class="fas fa-users" style="font-size:32px;display:block;margin-bottom:10px;opacity:.3"></i>No employees found</td></tr><?php endif; ?>
         <?php foreach ($employees as $e): ?>
         <tr>
-            <td><code style="font-size:11px;background:#f0e6ff;color:#6b46c1;padding:2px 7px;border-radius:5px"><?= $e['employee_code'] ?></code></td>
+            <td><code style="font-size:11px;background:#f0e6ff;color:#6b46c1;padding:2px 7px;border-radius:5px"><?= $e['employee_id'] ?></code></td>
             <td>
                 <div style="display:flex;align-items:center;gap:10px">
                     <div class="emp-avatar"><?= strtoupper(substr($e['first_name'],0,1)) ?></div>
@@ -185,7 +194,7 @@ tbody tr:last-child td{border-bottom:none}tbody tr:hover{background:#fafbfc}
             <td><span style="background:#f0e6ff;color:#6b46c1;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700"><?= ucfirst($e['department']??'—') ?></span></td>
             <td style="font-size:12px;color:var(--muted)"><?= ucfirst(str_replace('_',' ',$e['employment_type']??'')) ?></td>
             <td style="font-weight:600;color:#27ae60">₱<?= number_format($e['basic_salary'],2) ?></td>
-            <td style="font-size:12px;color:var(--muted)"><?= $e['date_hired'] ? date('M d, Y',strtotime($e['date_hired'])) : '—' ?></td>
+            <td style="font-size:12px;color:var(--muted)"><?= $e['hire_date'] ? date('M d, Y',strtotime($e['hire_date'])) : '—' ?></td>
             <td><span class="badge b-<?= $e['status'] ?>"><?= ucfirst($e['status']) ?></span></td>
             <td>
                 <a href="attendance.php?emp_id=<?= $e['id'] ?>" class="btn btn-sm" style="background:#f0e6ff;color:#6b46c1"><i class="fas fa-user-clock"></i></a>

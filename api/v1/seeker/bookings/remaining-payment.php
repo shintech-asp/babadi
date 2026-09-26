@@ -22,8 +22,14 @@ if (!$booking) {
     fail('Booking not found.', 404);
 }
 
-if ($booking['status'] !== 'waiting_for_remaining_payment') {
+// 'waiting_remaining_payment' (no "for") is the legacy web spelling for the
+// same state — seeker/my-requests.php:346 still writes it.
+if (!in_array($booking['status'], ['waiting_for_remaining_payment', 'waiting_remaining_payment'], true)) {
     fail('This booking does not require a remaining payment at this time. Current status: ' . $booking['status'], 422);
+}
+
+if (strtolower(trim((string)$booking['payment_status'])) === 'paid') {
+    fail('This booking\'s balance is already paid.', 422);
 }
 
 $remaining = (float)$booking['remaining_amount'];
@@ -95,8 +101,17 @@ if ($pm_http_code !== 200 || empty($pm_result['data']['attributes']['checkout_ur
 $checkout_url = $pm_result['data']['attributes']['checkout_url'];
 $session_id   = $pm_result['data']['id'];
 
-// Log transaction as type 'remaining' — the webhook uses this to detect remaining-balance payments
+// Log transaction as type 'remaining' — the webhook uses this to detect remaining-balance payments.
+// Void any stale pending transactions from earlier attempts first, so
+// confirm-payment.php's blanket "status='pending'" completion update can't
+// mark more than one row completed for a single real payment.
 try {
+    $pdo->beginTransaction();
+    $pdo->prepare(
+        "UPDATE payment_transactions SET status = 'failed', updated_at = NOW()
+         WHERE availed_service_id = :aid AND status = 'pending'"
+    )->execute([':aid' => $booking_id]);
+
     $pdo->prepare(
         'INSERT INTO payment_transactions
             (availed_service_id, seeker_id, provider_id, amount, payment_type,
@@ -109,7 +124,12 @@ try {
         ':amt' => $remaining,
         ':txn' => $session_id,
     ]);
-} catch (Exception $e) { /* non-fatal */ }
+    $pdo->commit();
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    error_log('[remaining-payment.php] Transaction record failed for booking #' . $booking_id . ': ' . $e->getMessage());
+    fail('Could not start the payment. Please try again.', 500);
+}
 
 ok([
     'data' => [

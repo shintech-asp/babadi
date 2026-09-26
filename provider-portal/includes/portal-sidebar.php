@@ -22,6 +22,16 @@ $can_hr      = $is_owner || in_array($dept, ['hr',      'all']);
 $can_finance = $is_owner || in_array($dept, ['finance', 'all']);
 $can_crm     = $is_owner || in_array($dept, ['crm',     'all']);
 
+// Non-promoted employee self-service account (see auth/login.php) — gets
+// its own small nav instead of the HR/Finance/CRM management sections.
+$is_employee_account = (($_SESSION['portal_account_type'] ?? 'staff') === 'employee');
+$sb_staff_type        = $_SESSION['portal_staff_type'] ?? 'office';
+// Any account linked to a real employee record — a pure employee account
+// always has this, but a promoted staff member does too when auth/login.php
+// found a matching employees row by email, so they keep their own
+// attendance/leave/payslip self-service alongside their management access.
+$sb_self_emp_id = (int)($_SESSION['portal_employee_id'] ?? 0);
+
 $grace_days = 0;
 if ($tier === 'grace' && $t_grace) {
     $secs_left  = strtotime($t_grace) - time();
@@ -118,6 +128,18 @@ if (isset($db, $portal_provider_id)) {
     <div class="sb-section">Overview</div>
     <a href="dashboard.php" class="sb-item <?= $active === 'dashboard' ? 'active' : '' ?>"><i class="fas fa-home"></i> Dashboard</a>
 
+    <?php if ($sb_self_emp_id > 0): ?>
+    <div class="sb-section">My Account</div>
+    <?php if (!$can_hr): // HR already has a Timekeeping link below to this same page ?>
+    <a href="timekeeping.php" class="sb-item <?= $active === 'timekeeping' ? 'active' : '' ?>"><i class="fas fa-qrcode"></i> Time In / Out</a>
+    <?php endif; ?>
+    <a href="my-payslips.php" class="sb-item <?= $active === 'my_payslips' ? 'active' : '' ?>"><i class="fas fa-money-check-alt"></i> My Salary</a>
+    <a href="my-leave-requests.php" class="sb-item <?= $active === 'my_leaves' ? 'active' : '' ?>"><i class="fas fa-file-alt"></i> My Leave Requests</a>
+    <?php if ($sb_staff_type === 'field'): ?>
+    <a href="my-services.php" class="sb-item <?= $active === 'my_services' ? 'active' : '' ?>"><i class="fas fa-people-carry-box"></i> My Assigned Services</a>
+    <?php endif; ?>
+    <?php endif; ?>
+
     <?php if ($can_hr): ?>
     <div class="sb-section">HR Department</div>
     <a href="employees.php"      class="sb-item <?= $active === 'employees'  ? 'active' : '' ?>"><i class="fas fa-id-badge"></i> Employees</a>
@@ -147,10 +169,15 @@ if (isset($db, $portal_provider_id)) {
     <a href="finance-dashboard.php" class="sb-item <?= $active === 'fin_dash'  ? 'active' : '' ?>"><i class="fas fa-chart-line"></i> Finance Dashboard</a>
     <a href="expenses.php"          class="sb-item <?= $active === 'expenses'   ? 'active' : '' ?>"><i class="fas fa-arrow-circle-down"></i> Expenses</a>
     <a href="budget-requests.php"   class="sb-item <?= $active === 'budget'     ? 'active' : '' ?>"><i class="fas fa-hand-holding-usd"></i> Budget Requests</a>
+    <a href="inventory.php"         class="sb-item <?= $active === 'inventory'  ? 'active' : '' ?>"><i class="fas fa-boxes-stacked"></i> Inventory</a>
+    <?php if (!$can_hr): ?>
+    <a href="payroll.php" class="sb-item <?= $active === 'payroll' ? 'active' : '' ?>"><i class="fas fa-money-check-alt"></i> Payroll <span style="font-size:9px;opacity:.7">(Approve)</span></a>
+    <?php endif; ?>
     <?php else: ?>
     <div class="sb-item locked"><i class="fas fa-chart-line"></i> Finance Dashboard <span class="pro-chip">PRO</span></div>
     <div class="sb-item locked"><i class="fas fa-arrow-circle-down"></i> Expenses <span class="pro-chip">PRO</span></div>
     <div class="sb-item locked"><i class="fas fa-hand-holding-usd"></i> Budget Requests <span class="pro-chip">PRO</span></div>
+    <div class="sb-item locked"><i class="fas fa-boxes-stacked"></i> Inventory <span class="pro-chip">PRO</span></div>
     <?php endif; ?>
     <?php endif; ?>
 
@@ -164,15 +191,16 @@ if (isset($db, $portal_provider_id)) {
     <?php if ($is_paid): ?>
     <a href="crm-dashboard.php" class="sb-item <?= $active === 'crm_dash'   ? 'active' : '' ?>"><i class="fas fa-headset"></i> CRM Dashboard</a>
     <a href="schedules.php"     class="sb-item <?= $active === 'schedules'   ? 'active' : '' ?>"><i class="fas fa-calendar-alt"></i> Schedules</a>
+    <a href="crm-outreach.php"  class="sb-item <?= $active === 'crm_outreach' ? 'active' : '' ?>"><i class="fas fa-bullhorn"></i> Customer Outreach</a>
     <?php else: ?>
     <div class="sb-item locked"><i class="fas fa-headset"></i> CRM Dashboard <span class="pro-chip">PRO</span></div>
     <div class="sb-item locked"><i class="fas fa-calendar-alt"></i> Schedules <span class="pro-chip">PRO</span></div>
+    <div class="sb-item locked"><i class="fas fa-bullhorn"></i> Customer Outreach <span class="pro-chip">PRO</span></div>
     <?php endif; ?>
     <?php endif; ?>
 
     <?php if ($is_owner): ?>
     <div class="sb-section">Management</div>
-    <a href="staff.php"     class="sb-item <?= $active === 'staff'    ? 'active' : '' ?>"><i class="fas fa-user-shield"></i> Manage Staff</a>
     <?php if ($is_paid): ?>
     <a href="archive.php"   class="sb-item <?= $active === 'archive'  ? 'active' : '' ?>"><i class="fas fa-box-archive"></i> Archive</a>
     <?php else: ?>
@@ -198,7 +226,7 @@ if (isset($db, $portal_provider_id)) {
     <?php endif; ?>
 
     <div class="sb-section">Account</div>
-    <?php if ($can_hr || $can_finance || $can_crm || $is_owner): ?>
+    <?php if ($can_hr || $can_finance || $can_crm || $is_owner || $sb_staff_type === 'field'): ?>
     <a href="portal-messages.php" class="sb-item <?= $active === 'messages' ? 'active' : '' ?>">
         <i class="fas fa-comment-dots"></i> Messages
         <?php if ($_msg_count > 0) echo '<span class="msg-badge">' . $_msg_count . '</span>'; ?>

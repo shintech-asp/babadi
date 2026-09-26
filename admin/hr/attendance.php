@@ -28,7 +28,8 @@ $view_mode  = $_GET['view']   ?? 'daily'; // daily | employee
 // ── Daily view: all employees for a date ─────────────────────
 $daily_att = [];
 if ($view_mode === 'daily') {
-    $sql = "SELECT a.*, e.first_name, e.last_name, e.employee_code, e.position, e.department
+    // employees has no employee_code column — employee_id is the real code column.
+    $sql = "SELECT a.*, e.first_name, e.last_name, e.employee_id AS employee_code, e.position, e.department
             FROM attendance a JOIN employees e ON a.employee_id=e.id
             WHERE a.date=:d";
     $params = [':d'=>$view_date];
@@ -52,11 +53,11 @@ if ($view_mode === 'employee' && $emp_filter) {
         'absent'    => count(array_filter($emp_month_att, fn($r)=>$r['status']==='absent')),
         'on_leave'  => count(array_filter($emp_month_att, fn($r)=>$r['status']==='on_leave')),
         'late_mins' => array_sum(array_column($emp_month_att,'late_minutes')),
-        'ot_mins'   => array_sum(array_column($emp_month_att,'overtime_minutes')),
+        'ot_mins'   => array_sum(array_column($emp_month_att,'overtime_min')),
     ];
 }
 
-$employees = $db->query("SELECT id,employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
+$employees = $db->query("SELECT id,employee_id AS employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
 
 // Employees not yet marked today (for quick mark)
 $marked_ids = array_column($daily_att, 'employee_id');
@@ -151,9 +152,12 @@ select.status-select{padding:5px 8px;border:1.5px solid var(--border);border-rad
             <option value="<?=$e['id']?>">[<?=$e['employee_code']?>] <?=htmlspecialchars($e['first_name'].' '.$e['last_name'])?></option>
             <?php endforeach; ?>
         </select>
+        <!-- attendance.status is ENUM('present','absent','late','half_day') — no
+             'on_leave' value exists (that lives on employees.status / leave_requests
+             instead), so an 'on_leave' option here would throw on submit. -->
         <select name="status" style="border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit">
             <option value="present">Present</option><option value="absent">Absent</option>
-            <option value="late">Late</option><option value="on_leave">On Leave</option><option value="half_day">Half Day</option>
+            <option value="late">Late</option><option value="half_day">Half Day</option>
         </select>
         <button type="submit" class="btn btn-primary"><i class="fas fa-check"></i> Mark</button>
     </form>
@@ -179,7 +183,7 @@ select.status-select{padding:5px 8px;border:1.5px solid var(--border);border-rad
             <td style="color:#27ae60;font-weight:600"><?=$r['time_in']?date('h:i A',strtotime($r['time_in'])):'—'?></td>
             <td style="color:#e74c3c"><?=$r['time_out']?date('h:i A',strtotime($r['time_out'])):'—'?></td>
             <td style="color:<?=$r['late_minutes']>0?'#e67e22':'var(--muted)'?>"><?=$r['late_minutes']?:0?></td>
-            <td style="color:<?=$r['overtime_minutes']>0?'#27ae60':'var(--muted)'?>"><?=$r['overtime_minutes']?:0?></td>
+            <td style="color:<?=$r['overtime_min']>0?'#27ae60':'var(--muted)'?>"><?=$r['overtime_min']?:0?></td>
             <td><span class="att-badge ab-<?=$r['status']?>"><?=ucfirst(str_replace('_',' ',$r['status']))?></span></td>
         </tr>
         <?php endforeach; ?>
@@ -224,7 +228,7 @@ select.status-select{padding:5px 8px;border:1.5px solid var(--border);border-rad
             <td style="color:#27ae60"><?=$r['time_in']?date('h:i A',strtotime($r['time_in'])):'—'?></td>
             <td style="color:#e74c3c"><?=$r['time_out']?date('h:i A',strtotime($r['time_out'])):'—'?></td>
             <td><?=$r['late_minutes']?:0?></td>
-            <td><?=$r['overtime_minutes']?:0?></td>
+            <td><?=$r['overtime_min']?:0?></td>
             <td><span class="att-badge ab-<?=$r['status']?>"><?=ucfirst(str_replace('_',' ',$r['status']))?></span></td>
             <td style="font-size:12px;color:var(--muted)"><?=htmlspecialchars($r['notes']??'')?></td>
         </tr>

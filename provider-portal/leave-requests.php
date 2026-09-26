@@ -12,30 +12,59 @@ if (!($portal_role === 'owner' || $portal_dept === 'hr' || $portal_dept === 'all
 }
 
 require_once 'includes/portal-tier.php';
+require_once 'includes/leave_balance_helper.php';
 
 function safeAll($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetchAll(PDO::FETCH_ASSOC);}catch(Exception $e){return[];}}
 function safeCount($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return(int)$s->fetchColumn();}catch(Exception $e){return 0;}}
+function safeRow($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetch(PDO::FETCH_ASSOC);}catch(Exception $e){return null;}}
 
 $success = $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $rid = (int)($_POST['request_id']??0);
     if ($_POST['action'] === 'approve') {
-        $db->prepare("UPDATE leave_requests SET status='approved',approved_by=:by,updated_at=NOW() WHERE id=:id AND provider_id=:p")
-           ->execute([':by'=>$portal_staff_id??0,':id'=>$rid,':p'=>$pid]);
-        $success = "Leave request approved.";
+        $req = safeRow($db, "SELECT employee_id, leave_type, start_date, end_date FROM leave_requests WHERE id=:id AND provider_id=:p", [':id'=>$rid, ':p'=>$pid]);
+        if (!$req) {
+            $error = "Leave request not found.";
+        } else {
+            $days = countLeaveCalendarDays($req['start_date'], $req['end_date']);
+            $bal  = getLeaveBalance($db, $pid, (int)$req['employee_id'], $req['leave_type'], date('Y', strtotime($req['start_date'])));
+            if ($days > $bal['remaining']) {
+                $error = "Cannot approve: this employee only has {$bal['remaining']} {$req['leave_type']} leave day(s) left, but the request is for $days day(s).";
+            } else {
+                $db->prepare("UPDATE leave_requests SET status='approved',approved_by=:by,updated_at=NOW() WHERE id=:id AND provider_id=:p")
+                   ->execute([':by'=>$portal_staff_id??0,':id'=>$rid,':p'=>$pid]);
+                deductLeaveBalance($db, $pid, (int)$req['employee_id'], $req['leave_type'], date('Y', strtotime($req['start_date'])), $days);
+                $success = "Leave request approved.";
+            }
+        }
     } elseif ($_POST['action'] === 'reject') {
         $db->prepare("UPDATE leave_requests SET status='rejected',approved_by=:by,updated_at=NOW() WHERE id=:id AND provider_id=:p")
            ->execute([':by'=>$portal_staff_id??0,':id'=>$rid,':p'=>$pid]);
         $success = "Leave request rejected.";
     } elseif ($_POST['action'] === 'add') {
+        // HR adding a leave record directly is a grant, not a request on the
+        // employee's behalf — auto-approve so it counts as paid leave right
+        // away for payroll's attendance computation.
         $eid = (int)($_POST['employee_id']??0);
         $type = $_POST['leave_type']??'annual';
         $start = $_POST['start_date']??'';
         $end = $_POST['end_date']??'';
         $reason = trim($_POST['reason']??'');
-        $db->prepare("INSERT INTO leave_requests (provider_id,employee_id,leave_type,start_date,end_date,reason,status) VALUES (:p,:e,:t,:s,:en,:r,'pending')")
-           ->execute([':p'=>$pid,':e'=>$eid,':t'=>$type,':s'=>$start,':en'=>$end,':r'=>$reason]);
-        $success = "Leave request filed.";
+
+        if (!$eid || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end) || strtotime($end) < strtotime($start)) {
+            $error = "Please select an employee and a valid date range.";
+        } else {
+            $days = countLeaveCalendarDays($start, $end);
+            $bal  = getLeaveBalance($db, $pid, $eid, $type, date('Y', strtotime($start)));
+            if ($days > $bal['remaining']) {
+                $error = "Cannot grant: this employee only has {$bal['remaining']} {$type} leave day(s) left, but this range is $days day(s). Adjust the dates, pick a different leave type, or set a per-employee override in Settings.";
+            } else {
+                $db->prepare("INSERT INTO leave_requests (provider_id,employee_id,leave_type,start_date,end_date,reason,status,approved_by) VALUES (:p,:e,:t,:s,:en,:r,'approved',:by)")
+                   ->execute([':p'=>$pid,':e'=>$eid,':t'=>$type,':s'=>$start,':en'=>$end,':r'=>$reason,':by'=>$portal_staff_id??0]);
+                deductLeaveBalance($db, $pid, $eid, $type, date('Y', strtotime($start)), $days);
+                $success = "Paid leave granted for the employee.";
+            }
+        }
     }
 }
 
@@ -49,6 +78,18 @@ $employees = safeAll($db,"SELECT id,first_name,last_name FROM employees WHERE pr
 $pending = safeCount($db,"SELECT COUNT(*) FROM leave_requests WHERE provider_id=:p AND status='pending'",[':p'=>$pid]);
 $approved = safeCount($db,"SELECT COUNT(*) FROM leave_requests WHERE provider_id=:p AND status='approved'",[':p'=>$pid]);
 $rejected = safeCount($db,"SELECT COUNT(*) FROM leave_requests WHERE provider_id=:p AND status='rejected'",[':p'=>$pid]);
+
+// Remaining balance per employee/leave-type, for the Grant Paid Leave modal's
+// live display (JS reads this to show "X days left" as the form is filled in).
+$leaveTypes = ['annual','sick','personal','maternity','paternity'];
+$currentYear = date('Y');
+$balanceMap = [];
+foreach ($employees as $e) {
+    foreach ($leaveTypes as $lt) {
+        $bal = getLeaveBalance($db, $pid, (int)$e['id'], $lt, $currentYear);
+        $balanceMap[$e['id']][$lt] = $bal['remaining'];
+    }
+}
 
 $active_menu='leave';
 ?>
@@ -85,6 +126,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:#2d3748}
 .btn-sm{padding:5px 10px;font-size:11px}
 .alert{padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px}
 .alert-success{background:#f0fdf4;border:1px solid #bbf7d0;color:#276749}
+.alert-error{background:#fff5f5;border:1px solid #fed7d7;color:#c53030}
 .filters{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
 .filters select{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:#fff}
 .card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.07);border:1px solid var(--border);overflow:hidden}
@@ -129,10 +171,11 @@ tbody tr:hover{background:#fafbfc}
         <h1><i class="fas fa-file-alt"></i> Leave Requests</h1>
         <p><?= count($requests) ?> request(s) found</p>
     </div>
-    <button onclick="document.getElementById('addModal').classList.add('active')" class="btn btn-primary"><i class="fas fa-plus"></i> File Leave</button>
+    <button onclick="document.getElementById('addModal').classList.add('active')" class="btn btn-primary"><i class="fas fa-plus"></i> Grant Paid Leave</button>
 </div>
 
 <?php if($success): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $success ?></div><?php endif; ?>
+<?php if($error): ?><div class="alert alert-error"><i class="fas fa-triangle-exclamation"></i> <?= htmlspecialchars($error) ?></div><?php endif; ?>
 
 <div class="stats-grid">
     <a href="leave-requests.php?status=pending" class="stat-card"><div class="stat-icon si-orange"><i class="fas fa-hourglass-half"></i></div><div class="stat-info"><h3><?= $pending ?></h3><p>Pending</p></div></a>
@@ -187,19 +230,20 @@ tbody tr:hover{background:#fafbfc}
 <!-- Add Modal -->
 <div class="modal-overlay" id="addModal">
 <div class="modal">
-    <h3><i class="fas fa-file-alt" style="color:var(--primary)"></i> File Leave Request</h3>
+    <h3><i class="fas fa-file-alt" style="color:var(--primary)"></i> Grant Paid Leave</h3>
+    <p style="font-size:12px;color:var(--muted);margin:-6px 0 12px">This is recorded as already approved — it will count as paid leave, not an absence, for payroll.</p>
     <form method="POST">
     <input type="hidden" name="action" value="add">
     <div class="form-group">
         <label>Employee *</label>
-        <select name="employee_id" required>
+        <select name="employee_id" id="grantEmpSelect" required onchange="updateLeaveBalanceHint()">
             <option value="">Select Employee</option>
             <?php foreach($employees as $e): ?><option value="<?= $e['id'] ?>"><?= htmlspecialchars($e['first_name'].' '.$e['last_name']) ?></option><?php endforeach; ?>
         </select>
     </div>
     <div class="form-group">
         <label>Leave Type *</label>
-        <select name="leave_type">
+        <select name="leave_type" id="grantTypeSelect" onchange="updateLeaveBalanceHint()">
             <option value="annual">Annual</option>
             <option value="sick">Sick</option>
             <option value="personal">Personal</option>
@@ -207,6 +251,7 @@ tbody tr:hover{background:#fafbfc}
             <option value="paternity">Paternity</option>
         </select>
     </div>
+    <div id="leaveBalanceHint" style="display:none;font-size:12px;padding:8px 12px;border-radius:8px;margin-bottom:14px"></div>
     <div class="form-group"><label>Start Date *</label><input type="date" name="start_date" required></div>
     <div class="form-group"><label>End Date *</label><input type="date" name="end_date" required></div>
     <div class="form-group"><label>Reason</label><textarea name="reason" rows="3" style="resize:vertical"></textarea></div>
@@ -219,5 +264,22 @@ tbody tr:hover{background:#fafbfc}
 </div>
 <script>
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',function(e){if(e.target===this)this.classList.remove('active');}));
+
+const LEAVE_BALANCE_MAP = <?= json_encode($balanceMap) ?>;
+function updateLeaveBalanceHint() {
+    const empId = document.getElementById('grantEmpSelect').value;
+    const type  = document.getElementById('grantTypeSelect').value;
+    const hint  = document.getElementById('leaveBalanceHint');
+    if (!empId || !LEAVE_BALANCE_MAP[empId]) { hint.style.display = 'none'; return; }
+    const remaining = LEAVE_BALANCE_MAP[empId][type];
+    hint.style.display = 'block';
+    if (remaining <= 0) {
+        hint.style.background = '#fee2e2'; hint.style.color = '#991b1b';
+        hint.innerHTML = '<i class="fas fa-triangle-exclamation"></i> No ' + type + ' leave days remaining this year.';
+    } else {
+        hint.style.background = '#eff6ff'; hint.style.color = '#1e40af';
+        hint.innerHTML = '<i class="fas fa-circle-info"></i> ' + remaining + ' ' + type + ' leave day(s) remaining this year.';
+    }
+}
 </script>
 </body></html>

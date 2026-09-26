@@ -38,6 +38,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+require_once __DIR__ . '/booking_workflow_helper.php';
+
 class ControlNumberService
 {
     private PDO $db;
@@ -183,7 +185,7 @@ class ControlNumberService
         $entered = strtoupper(trim($entered));
 
         $booking = $this->db->prepare(
-            "SELECT id, status, service_name, provider_id,
+            "SELECT id, status, service_name, provider_id, preferred_date, payment_status,
                     control_number, provider_control_number,
                     seeker_verified_at, provider_verified_at, dual_verified_at
              FROM availed_services
@@ -196,6 +198,10 @@ class ControlNumberService
         if (!$row) {
             return $this->fail("Booking not found or does not belong to your account.");
         }
+        if (in_array((string)$row['status'], ['completed', 'cancelled'], true)) {
+            $this->audit($availedId, $seekerUserId, 'seeker', $entered, 'fail_already_verified', $ip);
+            return $this->fail("This booking is already {$row['status']} and cannot be re-verified.");
+        }
         if ($row['dual_verified_at']) {
             $this->audit($availedId, $seekerUserId, 'seeker', $entered, 'fail_already_verified', $ip);
             return $this->fail("This booking is already verified and in progress.");
@@ -203,6 +209,19 @@ class ControlNumberService
         if ($row['seeker_verified_at']) {
             $this->audit($availedId, $seekerUserId, 'seeker', $entered, 'fail_already_verified', $ip);
             return $this->fail("You have already submitted your code. Waiting for the technician to verify their side.");
+        }
+        // Same "paid or at least a downpayment" bar the web's dual-verification
+        // widget and verifyProviderSeekerCode() (booking_workflow_helper.php)
+        // both use — this class had no payment check at all before.
+        if (!in_array((string)($row['payment_status'] ?? ''), ['paid', 'partial'], true)) {
+            return $this->fail("Please complete payment before verifying to start the service.");
+        }
+        // Verification only opens on/after the service day — unless the
+        // technician already verified their side first (Start Early), same
+        // bypass seeker/my-requests.php's own handler uses.
+        if (empty($row['provider_verified_at']) &&
+            (empty($row['preferred_date']) || (string)$row['preferred_date'] > date('Y-m-d'))) {
+            return $this->fail("Verification is only available on or after the service day.");
         }
         if (empty($row['provider_control_number'])) {
             return $this->fail("No verification code has been assigned to this booking yet. Please ensure payment is complete.");
@@ -224,7 +243,7 @@ class ControlNumberService
 
         // Check if provider already verified → if so, trigger dual unlock
         if (!empty($row['provider_verified_at'])) {
-            return $this->unlockService($availedId, $seekerUserId, (int)$row['provider_id'], $row['service_name']);
+            return $this->unlockService($availedId, $seekerUserId, (int)$row['provider_id'], $row['service_name'], (string)$row['status']);
         }
 
         return ['success' => true, 'state' => 'waiting_provider', 'error' => ''];
@@ -254,7 +273,7 @@ class ControlNumberService
         $entered = strtoupper(trim($entered));
 
         $booking = $this->db->prepare(
-            "SELECT id, status, service_name,
+            "SELECT id, status, service_name, preferred_date, payment_status,
                     seeker_user_id, control_number, provider_control_number,
                     seeker_verified_at, provider_verified_at, dual_verified_at
              FROM availed_services
@@ -266,6 +285,10 @@ class ControlNumberService
         if (!$row) {
             return $this->fail("Booking #$availedId not found.");
         }
+        if (in_array((string)$row['status'], ['completed', 'cancelled'], true)) {
+            $this->audit($availedId, $providerId, 'provider', $entered, 'fail_already_verified', $ip);
+            return $this->fail("Booking #$availedId is already {$row['status']} and cannot be re-verified.");
+        }
         if ($row['dual_verified_at']) {
             $this->audit($availedId, $providerId, 'provider', $entered, 'fail_already_verified', $ip);
             return $this->fail("Booking #$availedId is already verified and in progress.");
@@ -273,6 +296,17 @@ class ControlNumberService
         if ($row['provider_verified_at']) {
             $this->audit($availedId, $providerId, 'provider', $entered, 'fail_already_verified', $ip);
             return $this->fail("You have already submitted your code. Waiting for the client to verify their side.");
+        }
+        // Same "paid or at least a downpayment" bar verifySeekerCode() above
+        // and the web's verifyProviderSeekerCode() both use.
+        if (!in_array((string)($row['payment_status'] ?? ''), ['paid', 'partial'], true)) {
+            return $this->fail("The seeker needs to complete payment before service can start.");
+        }
+        // Same service-day gate as verifySeekerCode(), bypassed if the
+        // seeker already verified their side first.
+        if (empty($row['seeker_verified_at']) &&
+            (empty($row['preferred_date']) || (string)$row['preferred_date'] > date('Y-m-d'))) {
+            return $this->fail("Verification is only available on or after the service day.");
         }
         if (empty($row['control_number'])) {
             return $this->fail("No seeker control number found for Booking #$availedId. Ensure payment was completed.");
@@ -294,7 +328,7 @@ class ControlNumberService
 
         // Check if seeker already verified → trigger dual unlock
         if (!empty($row['seeker_verified_at'])) {
-            return $this->unlockService($availedId, (int)$row['seeker_user_id'], $providerId, $row['service_name']);
+            return $this->unlockService($availedId, (int)$row['seeker_user_id'], $providerId, $row['service_name'], (string)$row['status']);
         }
 
         return ['success' => true, 'state' => 'waiting_seeker', 'error' => ''];
@@ -319,33 +353,42 @@ class ControlNumberService
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Called when BOTH sides have verified – advances booking to in_progress.
+     * Called when BOTH sides have verified their code. This confirms the
+     * seeker and provider agreed to start — often remotely, before the
+     * provider is on-site — so it advances the booking to `starting` (with
+     * a fresh QR token) rather than skipping straight to an "in progress"
+     * state. The technician still has to scan the seeker's QR on arrival
+     * (scanQrAndStartService() in booking_workflow_helper.php) to actually
+     * begin the service.
      */
     private function unlockService(
         int    $availedId,
         int    $seekerUserId,
         int    $providerId,
-        string $serviceName
+        string $serviceName,
+        string $oldStatus
     ): array {
         try {
             $this->db->beginTransaction();
 
+            $qrToken = generateQrToken($availedId);
+
             $this->db->prepare(
                 "UPDATE availed_services
-                 SET status            = 'in_progress',
+                 SET status            = 'starting',
                      dual_verified_at  = NOW(),
-                     service_started_at = NOW(),
+                     qr_token          = :qr,
                      updated_at        = NOW()
                  WHERE id = :id"
-            )->execute([':id' => $availedId]);
+            )->execute([':id' => $availedId, ':qr' => $qrToken]);
 
             // Status history
             $this->db->prepare(
                 "INSERT INTO availed_service_status_history
                     (availed_id, old_status, new_status, changed_by, changed_by_role, notes, created_at)
-                 VALUES (:aid, 'starting', 'in_progress', :by, 'system',
-                         'Dual control number verification complete – service unlocked', NOW())"
-            )->execute([':aid' => $availedId, ':by' => $seekerUserId]);
+                 VALUES (:aid, :old, 'starting', :by, 'system',
+                         'Dual control number verification complete – awaiting on-site QR scan', NOW())"
+            )->execute([':aid' => $availedId, ':old' => $oldStatus, ':by' => $seekerUserId]);
 
             $svcName = htmlspecialchars($serviceName ?? 'your service');
 
@@ -355,8 +398,8 @@ class ControlNumberService
                 availedId    : $availedId,
                 providerId   : $providerId,
                 serviceName  : $serviceName ?? '',
-                type         : 'in_progress',
-                message      : "🚀 Booking #{$availedId} – {$svcName} is now IN PROGRESS! Both verification codes matched. Your service has officially started."
+                type         : 'starting',
+                message      : "Booking #{$availedId} – {$svcName}: both verification codes matched! Show your QR code to the technician on arrival to start service."
             );
 
             $this->db->commit();

@@ -1,5 +1,5 @@
 <?php
-require_once dirname(__DIR__, 3) . '/_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('POST');
 
@@ -33,18 +33,21 @@ if (!$catStmt->fetch()) {
     fail('Invalid category_id.');
 }
 
+// service_listings was merged into services (see CLAUDE.md's "Recent Work
+// Log") — a service created here is now visible and bookable through the
+// website too.
 $stmt = $pdo->prepare(
-    'INSERT INTO service_listings
-        (provider_id, title, description, price, pricing_type, category_id,
+    'INSERT INTO services
+        (provider_id, service_name, description, price, pricing_type, category_id,
          is_emergency_available, status, created_at)
      VALUES
-        (:provider_id, :title, :description, :price, :pricing_type, :category_id,
+        (:provider_id, :service_name, :description, :price, :pricing_type, :category_id,
          :is_emergency, :status, NOW())'
 );
 
 $stmt->execute([
     ':provider_id' => $pid,
-    ':title'       => trim($title),
+    ':service_name'=> trim($title),
     ':description' => trim($description),
     ':price'       => (float)$price,
     ':pricing_type'=> $pricing_type,

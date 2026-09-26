@@ -65,8 +65,12 @@ if (stripos((string)$address, 'cavite') === false) {
 
 $pdo = db();
 
-// Fetch listing — must exist and be active
-$stmt = $pdo->prepare('SELECT * FROM service_listings WHERE id = :id AND status = :status LIMIT 1');
+// Fetch listing — must exist and be active. service_listings was merged into
+// services (see CLAUDE.md's "Recent Work Log") — service_name AS title keeps
+// every $listing['title'] read below working unchanged, and means a booking
+// created here now stores a real services.id in service_id, resolvable by
+// both web and mobile instead of only mobile.
+$stmt = $pdo->prepare('SELECT *, service_name AS title FROM services WHERE id = :id AND status = :status LIMIT 1');
 $stmt->execute([':id' => $listing_id, ':status' => 'active']);
 $listing = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -102,19 +106,27 @@ if ($payment_method === 'downpayment') {
 
 $pay_now = ($payment_method === 'downpayment') ? $dp_amount : $total_amount;
 
+// Listings opted into the two-date inspection flow (see CLAUDE.md's
+// "Recent Work Log"): the date the seeker picked here is treated as the
+// requested Inspection Date, not a firm Working Date/price — the total
+// above is only an estimate. No payment is collected until the seeker
+// agrees to the technician's post-inspection report (mirrors the web's
+// seeker/request-service.php + my-requests.php agree/request-changes flow).
+$requires_inspection = !empty($listing['requires_inspection']);
+
 // Insert booking — set both user_id and seeker_user_id for web/mobile compat
 try {
     $pdo->prepare(
         'INSERT INTO availed_services
-            (seeker_user_id, user_id, provider_id, listing_id, service_name,
+            (seeker_user_id, user_id, provider_id, service_id, service_name,
              full_name, contact_number,
-             preferred_date, preferred_time, status, notes, address,
+             preferred_date, preferred_time, inspection_date, status, notes, address,
              payment_method, total_amount, downpayment_amount, remaining_amount,
              payment_status, paid_amount, created_at)
          VALUES
             (:uid, :uid2, :pid, :lid, :service_name,
              :full_name, :contact_number,
-             :date, :time, \'pending\', :notes, :address,
+             :date, :time, :idate, \'pending\', :notes, :address,
              :payment_method, :total_amount, :dp_amount, :remaining,
              \'unpaid\', 0, NOW())'
     )->execute([
@@ -127,6 +139,7 @@ try {
         ':contact_number' => $contact_number,
         ':date'           => $preferred_date,
         ':time'           => $preferred_time,
+        ':idate'          => $requires_inspection ? $preferred_date : null,
         ':notes'          => $notes,
         ':address'        => $address,
         ':payment_method' => $payment_method,
@@ -138,6 +151,20 @@ try {
 } catch (Exception $e) {
     error_log('[store.php] Booking insert failed: ' . $e->getMessage());
     fail('Booking could not be saved. Please try again.', 500);
+}
+
+if ($requires_inspection) {
+    // No payment yet — the provider must accept, then have a technician
+    // submit an inspection report before there's a final price to pay.
+    ok([
+        'data' => [
+            'id'                  => $booking_id,
+            'status'              => 'pending',
+            'service_name'        => $listing['title'],
+            'checkout_url'        => null,
+            'requires_inspection' => true,
+        ],
+    ], 201);
 }
 
 // Create PayMongo checkout session

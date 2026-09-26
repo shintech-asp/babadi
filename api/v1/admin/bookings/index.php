@@ -95,12 +95,12 @@ $sql = "SELECT
             u_p.email        AS provider_email,
             -- Listing
             av.service_id,
-            sl.title         AS listing_title
+            sl.service_name  AS listing_title
         FROM availed_services av
         JOIN users u_s     ON u_s.id = COALESCE(av.seeker_user_id, av.user_id)
         JOIN providers p   ON p.id   = av.provider_id
         JOIN users u_p     ON u_p.id = p.user_id
-        LEFT JOIN service_listings sl ON sl.id = av.service_id
+        LEFT JOIN services sl ON sl.id = av.service_id
         {$where}
         ORDER BY av.created_at DESC
         LIMIT :limit OFFSET :offset";

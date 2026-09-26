@@ -11,21 +11,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     if ($action === 'add') {
         $title  = trim($_POST['title']??'');
-        $type   = $_POST['request_type'] ?? 'budget';
         $amount = (float)($_POST['amount']??0);
         $dept   = trim($_POST['department']??'');
         $desc   = trim($_POST['description']??'');
-        $prio   = $_POST['priority'] ?? 'medium';
         if (!$title || $amount <= 0) { $error = 'Title and amount required.'; }
         else {
-            $db->prepare("INSERT INTO budget_requests (request_type,requested_by,department,title,description,amount,priority) VALUES(:t,:by,:d,:ti,:de,:a,:p)")
-            ->execute([':t'=>$type,':by'=>$_SESSION['admin_id'],':d'=>$dept,':ti'=>$title,':de'=>$desc,':a'=>$amount,':p'=>$prio]);
+            // budget_requests has no title/request_type/priority column and no
+            // description column (purpose is the one free-text field) — title
+            // and description are combined as "title\ndescription" and split
+            // back apart for display below; request_type/priority aren't
+            // represented in the schema at all so those inputs are dropped
+            // (matches the admin_user_id precedent elsewhere in this codebase:
+            // don't invent storage the schema doesn't have). request_date is
+            // NOT NULL with no default, so it's stamped as today here.
+            $purpose = $desc !== '' ? ($title . "\n" . $desc) : $title;
+            $db->prepare("INSERT INTO budget_requests (requested_by,department,purpose,amount,request_date) VALUES(:by,:d,:pu,:a,:rd)")
+            ->execute([':by'=>$_SESSION['admin_id'],':d'=>$dept,':pu'=>$purpose,':a'=>$amount,':rd'=>date('Y-m-d')]);
             $success = 'Request submitted.';
         }
     } elseif (in_array($action,['approve','reject'])) {
         $rid = (int)$_POST['req_id'];
         $status = $action==='approve' ? 'approved' : 'rejected';
-        $db->prepare("UPDATE budget_requests SET status=:s,approved_by=:by,approved_at=NOW() WHERE id=:id")->execute([':s'=>$status,':by'=>$_SESSION['admin_id'],':id'=>$rid]);
+        // budget_requests has no approved_at column — updated_at (auto-set by
+        // the table's own ON UPDATE trigger) is used as the approval timestamp.
+        $db->prepare("UPDATE budget_requests SET status=:s,approved_by=:by WHERE id=:id")->execute([':s'=>$status,':by'=>$_SESSION['admin_id'],':id'=>$rid]);
         $success = 'Request '.$status.'.';
     }
 }
@@ -89,18 +98,22 @@ tbody tr:last-child td{border-bottom:none}tbody tr:hover{background:#fafbfc}
     <div class="card-header"><h2><i class="fas fa-list"></i> All Requests</h2><span style="font-size:12px;color:var(--muted)"><?=count($requests)?> requests</span></div>
     <div style="overflow-x:auto">
     <table>
-        <thead><tr><th>#</th><th>Title</th><th>Type</th><th>Requested By</th><th>Dept</th><th>Amount</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>#</th><th>Title</th><th>Requested By</th><th>Dept</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
-        <?php if (empty($requests)): ?><tr><td colspan="9" style="text-align:center;padding:50px;color:var(--muted)">No requests yet</td></tr><?php endif; ?>
-        <?php foreach ($requests as $r): ?>
+        <?php if (empty($requests)): ?><tr><td colspan="7" style="text-align:center;padding:50px;color:var(--muted)">No requests yet</td></tr><?php endif; ?>
+        <?php foreach ($requests as $r):
+            // purpose holds "title\ndescription" (see the add handler above) —
+            // split back apart for display since there's no separate title column.
+            $purposeParts = explode("\n", (string)($r['purpose'] ?? ''), 2);
+            $reqTitle = $purposeParts[0] ?? '';
+            $reqDesc  = $purposeParts[1] ?? '';
+        ?>
         <tr>
             <td style="color:var(--muted);font-size:12px">#<?=$r['id']?></td>
-            <td><div style="font-weight:600"><?=htmlspecialchars($r['title'])?></div><div style="font-size:11px;color:var(--muted)"><?=htmlspecialchars(substr($r['description']??'',0,60))?></div></td>
-            <td><span style="background:#f0f4ff;color:#3b5bdb;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700"><?=ucfirst($r['request_type'])?></span></td>
+            <td><div style="font-weight:600"><?=htmlspecialchars($reqTitle)?></div><div style="font-size:11px;color:var(--muted)"><?=htmlspecialchars(substr($reqDesc,0,60))?></div></td>
             <td style="font-size:12px"><?=htmlspecialchars($r['requester_name']??'—')?></td>
             <td style="font-size:12px;color:var(--muted)"><?=htmlspecialchars($r['department']??'—')?></td>
             <td style="font-weight:700;color:#27ae60">₱<?=number_format($r['amount'],2)?></td>
-            <td><span class="prio-<?=$r['priority']?>" style="font-weight:700;font-size:12px"><i class="fas fa-circle" style="font-size:8px"></i> <?=ucfirst($r['priority'])?></span></td>
             <td><span class="badge b-<?=$r['status']?>"><?=ucfirst($r['status'])?></span></td>
             <td>
                 <?php if ($r['status']==='pending'): ?>
@@ -112,7 +125,7 @@ tbody tr:last-child td{border-bottom:none}tbody tr:hover{background:#fafbfc}
                     <input type="hidden" name="action" value="reject"><input type="hidden" name="req_id" value="<?=$r['id']?>">
                     <button class="btn btn-sm" style="background:#fed7d7;color:#c53030" type="submit"><i class="fas fa-times"></i></button>
                 </form>
-                <?php else: ?><span style="font-size:12px;color:var(--muted)"><?=$r['approved_at']?date('M d',strtotime($r['approved_at'])):'—'?></span><?php endif; ?>
+                <?php else: ?><span style="font-size:12px;color:var(--muted)"><?=$r['updated_at']?date('M d',strtotime($r['updated_at'])):'—'?></span><?php endif; ?>
             </td>
         </tr>
         <?php endforeach; ?>
@@ -128,18 +141,6 @@ tbody tr:last-child td{border-bottom:none}tbody tr:hover{background:#fafbfc}
     <button style="background:none;border:none;font-size:20px;cursor:pointer" onclick="document.getElementById('addModal').classList.remove('open')">&times;</button></div>
     <form method="POST"><input type="hidden" name="action" value="add">
     <div class="modal-body">
-        <div class="form-grid">
-            <div class="form-group"><label class="form-label">Type</label>
-                <select name="request_type" class="form-control">
-                    <option value="budget">Budget Request</option><option value="reimbursement">Reimbursement</option>
-                </select>
-            </div>
-            <div class="form-group"><label class="form-label">Priority</label>
-                <select name="priority" class="form-control">
-                    <option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
-                </select>
-            </div>
-        </div>
         <div class="form-group"><label class="form-label">Title *</label><input type="text" name="title" class="form-control" required></div>
         <div class="form-grid">
             <div class="form-group"><label class="form-label">Amount (₱) *</label><input type="number" name="amount" class="form-control" step="0.01" min="0.01" required></div>

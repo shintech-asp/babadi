@@ -26,7 +26,7 @@ if (in_array($incomingAction, ['toggle_status', 'test_toggle_status'], true) && 
         'sort' => trim((string)($_REQUEST['sort'] ?? 'newest'))
     ];
     try {
-        $stmt = $db->prepare("SELECT id, status, title FROM service_listings WHERE id = :id LIMIT 1");
+        $stmt = $db->prepare("SELECT id, status, service_name AS title FROM services WHERE id = :id LIMIT 1");
         $stmt->execute([':id' => $incomingServiceId]);
         $service = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -36,7 +36,7 @@ if (in_array($incomingAction, ['toggle_status', 'test_toggle_status'], true) && 
             $current = $service['status'] ?? 'inactive';
             $newStatus = $current === 'active' ? 'inactive' : 'active';
 
-            $upd = $db->prepare("UPDATE service_listings SET status = :status, updated_at = NOW() WHERE id = :id");
+            $upd = $db->prepare("UPDATE services SET status = :status, updated_at = NOW() WHERE id = :id");
             $upd->execute([':status' => $newStatus, ':id' => $incomingServiceId]);
 
             if ($incomingAction === 'test_toggle_status') {
@@ -74,7 +74,7 @@ $where = [];
 $params = [];
 
 if ($search !== '') {
-    $where[] = "(sl.title LIKE :q OR sl.description LIKE :q OR p.company_name LIKE :q OR sc.name LIKE :q)";
+    $where[] = "(sl.service_name LIKE :q OR sl.description LIKE :q OR p.company_name LIKE :q OR sc.name LIKE :q)";
     $params[':q'] = '%' . $search . '%';
 }
 
@@ -94,7 +94,7 @@ $orderSql = match ($sort) {
 
 $query = "SELECT
             sl.id,
-            sl.title,
+            sl.service_name AS title,
             sl.description,
             sl.price,
             sl.pricing_type,
@@ -105,7 +105,7 @@ $query = "SELECT
             p.id AS provider_id,
             p.company_name,
             sc.name AS category_name
-          FROM service_listings sl
+          FROM services sl
           LEFT JOIN providers p ON sl.provider_id = p.id
           LEFT JOIN service_categories sc ON sl.category_id = sc.id
           $whereSql
@@ -121,9 +121,9 @@ $counts = [
     'inactive' => 0
 ];
 try {
-    $counts['total'] = (int)$db->query("SELECT COUNT(*) FROM service_listings")->fetchColumn();
-    $counts['active'] = (int)$db->query("SELECT COUNT(*) FROM service_listings WHERE status = 'active'")->fetchColumn();
-    $counts['inactive'] = (int)$db->query("SELECT COUNT(*) FROM service_listings WHERE status = 'inactive'")->fetchColumn();
+    $counts['total'] = (int)$db->query("SELECT COUNT(*) FROM services")->fetchColumn();
+    $counts['active'] = (int)$db->query("SELECT COUNT(*) FROM services WHERE status = 'active'")->fetchColumn();
+    $counts['inactive'] = (int)$db->query("SELECT COUNT(*) FROM services WHERE status = 'inactive'")->fetchColumn();
 } catch (Exception $e) {
 }
 

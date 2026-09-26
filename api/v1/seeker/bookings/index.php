@@ -12,10 +12,16 @@ $where = '(av.seeker_user_id = :uid OR av.user_id = :uid2)';
 $params = [':uid' => $user['id'], ':uid2' => $user['id']];
 
 if ($status === 'active') {
-    // 'active' is a UI group label — map it to all in-progress DB statuses.
-    $where .= " AND av.status IN ('pending','accepted','preparing','starting','on_going',"
-             . "'waiting_for_remaining_payment','waiting_for_seeker_confirmation',"
-             . "'waiting_for_provider_confirmation')";
+    // 'active' is a UI group label — map it to all in-progress DB statuses,
+    // including the legacy web-app and provider-portal spellings for the
+    // same states (see lib/shared/utils/booking_status_utils.dart on the
+    // Flutter side for the canonical mapping).
+    $where .= " AND av.status IN ('pending','accepted','preparing','starting','on_going','ongoing',"
+             . "'waiting_for_remaining_payment','waiting_remaining_payment',"
+             . "'waiting_for_seeker_confirmation','waiting_provider_confirmation',"
+             . "'waiting_seeker_information','waiting_seeker_confirmation',"
+             . "'waiting_for_provider_confirmation','on_the_way','in_progress',"
+             . "'awaiting_agreement','revising')";
 } elseif ($status !== null && $status !== '') {
     $where .= ' AND av.status = :status';
     $params[':status'] = $status;
@@ -29,10 +35,12 @@ $countStmt->execute($params);
 $total = (int) $countStmt->fetchColumn();
 
 $sql = "SELECT av.*, p.company_name, p.logo_url,
-               u_p.first_name AS provider_first, u_p.last_name AS provider_last
+               u_p.first_name AS provider_first, u_p.last_name AS provider_last,
+               COALESCE(sv.requires_inspection, 0) AS requires_inspection
         FROM availed_services av
         JOIN providers p ON av.provider_id = p.id
         JOIN users u_p ON u_p.id = p.user_id
+        LEFT JOIN services sv ON sv.id = av.service_id
         WHERE {$where}
         ORDER BY av.created_at DESC
         LIMIT :limit OFFSET :offset";

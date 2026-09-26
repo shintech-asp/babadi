@@ -10,7 +10,7 @@
 //   page         (default 1)
 //   limit        (default 20, max 100)
 
-require_once dirname(__DIR__, 3) . '/_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 $staff = require_portal_role('owner', 'hr');

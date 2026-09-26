@@ -17,7 +17,12 @@ chdir(dirname(__DIR__));
     define('BK_ACCEPTED',                'accepted');
     define('BK_PREPARING',               'preparing');
     define('BK_STARTING',                'starting');
-    define('BK_ONGOING',                 'ongoing');
+    // DB always stores 'on_going' (underscore) in availed_services.status — this
+    // used to be defined here as 'ongoing' (no underscore), a conflicting local
+    // copy of the canonical BK_ONGOING constant in includes/booking_workflow_helper.php,
+    // so a real on_going booking never matched this file's own badge/label/step-icon
+    // lookups and fell through to a raw ucfirst() default instead.
+    define('BK_ONGOING',                 'on_going');
     define('BK_WAITING_REMAINING',       'waiting_remaining_payment');
     define('BK_WAITING_PROVIDER_CONFIRM','waiting_provider_confirmation');
     define('BK_WAITING_SEEKER_CONFIRM',  'waiting_seeker_information');
@@ -71,7 +76,9 @@ chdir(dirname(__DIR__));
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'confirm_complete') {
         try {
             $upStmt = $pdo->prepare(
-                "UPDATE availed_services SET status = ? WHERE id = ? AND user_id = ?"
+                "UPDATE availed_services
+                 SET status = ?, seeker_satisfaction_confirmed_at = NOW()
+                 WHERE id = ? AND user_id = ?"
             );
             $upStmt->execute([BK_COMPLETED, $availedId, $_SESSION['user_id']]);
             if ($upStmt->rowCount() > 0) {
@@ -107,28 +114,57 @@ chdir(dirname(__DIR__));
                         UNIQUE KEY unique_review (avail_id, seeker_user_id)
                     )");
                     ensureFeedbackImageColumn($pdo, 'service_reviews');
-                    // Get provider_id and service_name for this booking
+                    // Get provider_id, service_name, and this cycle's completion time
                     $tmpStmt = $pdo->prepare(
-                        "SELECT provider_id, COALESCE(service_name, '') AS service_name
+                        "SELECT provider_id, COALESCE(service_name, '') AS service_name,
+                                seeker_satisfaction_confirmed_at
                         FROM availed_services WHERE id = ? AND user_id = ?"
                     );
                     $tmpStmt->execute([$availedId, $_SESSION['user_id']]);
                     $tmpRow = $tmpStmt->fetch(PDO::FETCH_ASSOC);
                     if ($tmpRow) {
-                        $ins = $pdo->prepare(
-                            "INSERT IGNORE INTO service_reviews
-                                (avail_id, seeker_user_id, provider_id, service_name, rating, feedback, feedback_image)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)"
+                        // A review row may already exist from an earlier completion
+                        // cycle of this same booking id — overwrite it instead of
+                        // silently no-op'ing via INSERT IGNORE (which would leave
+                        // the stale review in place and lose this new one).
+                        $existStmt = $pdo->prepare(
+                            "SELECT id, created_at FROM service_reviews WHERE avail_id = ? AND seeker_user_id = ?"
                         );
-                        $ins->execute([
-                            $availedId,
-                            $_SESSION['user_id'],
-                            $tmpRow['provider_id'],
-                            $tmpRow['service_name'],
-                            $rating,
-                            $feedback ?: null,
-                            $eeviewImagePath,
-                        ]);
+                        $existStmt->execute([$availedId, $_SESSION['user_id']]);
+                        $existRow = $existStmt->fetch(PDO::FETCH_ASSOC);
+                        $completedAt = $tmpRow['seeker_satisfaction_confirmed_at'] ?? null;
+                        $isStale = $existRow && $completedAt
+                            && strtotime($existRow['created_at']) < strtotime($completedAt);
+
+                        if ($existRow && $isStale) {
+                            $upd = $pdo->prepare(
+                                "UPDATE service_reviews
+                                    SET service_name = ?, rating = ?, feedback = ?, feedback_image = ?, created_at = NOW()
+                                  WHERE id = ?"
+                            );
+                            $upd->execute([
+                                $tmpRow['service_name'],
+                                $rating,
+                                $feedback ?: null,
+                                $eeviewImagePath,
+                                $existRow['id'],
+                            ]);
+                        } else {
+                            $ins = $pdo->prepare(
+                                "INSERT IGNORE INTO service_reviews
+                                    (avail_id, seeker_user_id, provider_id, service_name, rating, feedback, feedback_image)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)"
+                            );
+                            $ins->execute([
+                                $availedId,
+                                $_SESSION['user_id'],
+                                $tmpRow['provider_id'],
+                                $tmpRow['service_name'],
+                                $rating,
+                                $feedback ?: null,
+                                $eeviewImagePath,
+                            ]);
+                        }
                     }
                     header("Location: booking-details.php?id=$availedId&reviewed=1");
                     exit;
@@ -184,15 +220,22 @@ chdir(dirname(__DIR__));
     } catch (Exception $e) {}
 
     // -- Fetch existing review --
+    // Scoped to the CURRENT completion cycle: a booking that completed, was
+    // reviewed, then somehow re-entered the active pipeline and completed
+    // again must not surface the stale review from the earlier cycle.
     $existingReview = null;
     try {
         $eevStmt = $pdo->prepare(
-            "SELECT id, rating, feedback, feedback_image
+            "SELECT id, rating, feedback, feedback_image, created_at
              FROM service_reviews
              WHERE avail_id = ? AND seeker_user_id = ?"
         );
         $eevStmt->execute([$availedId, $_SESSION['user_id']]);
-        $existingReview = $eevStmt->fetch(PDO::FETCH_ASSOC);
+        $eevRow = $eevStmt->fetch(PDO::FETCH_ASSOC);
+        $completedAt = $booking['seeker_satisfaction_confirmed_at'] ?? null;
+        if ($eevRow && (!$completedAt || strtotime($eevRow['created_at']) >= strtotime($completedAt))) {
+            $existingReview = $eevRow;
+        }
     } catch (Exception $e) { /* table may not exist yet — first review will create it */ }
 
     // Hide the form if a review exists in DB OR if the page was just redirected after submission

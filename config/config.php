@@ -1,6 +1,13 @@
 <?php
 // config/config.php
 
+// php.ini's date.timezone is set to Europe/Berlin (XAMPP default), but this
+// app is Philippines-only (Cavite-only addresses) and MySQL's server clock
+// runs on the OS's actual timezone (Asia/Manila). Left mismatched, PHP's
+// date()/time() lag several hours behind MySQL's NOW()/CURDATE(), which
+// silently breaks any PHP-side "is it service day yet" check near midnight.
+date_default_timezone_set('Asia/Manila');
+
 // Start session only if not already started
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -26,12 +33,40 @@ define('APP_ROOT_DIR', dirname(__DIR__));
 // Use sk_test_... / pk_test_... for testing, sk_live_... / pk_live_... for production
 define('PAYMONGO_SECRET_KEY', 'sk_test_APQpFtdoAtcT1YeCRZRHaxCo');  // e.g. sk_test_xxxxxxxxxxxxxxxxxxxx
 define('PAYMONGO_PUBLIC_KEY', 'pk_test_9KGkU1Dw7PYvWF7XuwEfvGkQ');  // e.g. pk_test_xxxxxxxxxxxxxxxxxxxx
+// system/paymongo-webhook.php reads this — was undefined entirely, so every
+// webhook call fatally errored on an "Undefined constant" before it could
+// even validate a signature. Empty string is a safe default: validatePaymongoSignature()
+// already returns false (rejects) when the secret is empty, so this just stops
+// the crash — set your real value from the PayMongo Dashboard → Webhooks page
+// once a webhook endpoint is registered there.
+define('PAYMONGO_WEBHOOK_SECRET', '');
+
+// Groq (DSS free-text parsing + explanations) — the actual key lives in the
+// gitignored config/secrets.php, never here. Feature auto-disables (falls
+// back to rule-based parsing + template explanations) when the key is empty.
+if (file_exists(__DIR__ . '/secrets.php')) {
+    require_once __DIR__ . '/secrets.php';
+}
+if (!defined('GROQ_API_KEY')) {
+    define('GROQ_API_KEY', '');
+}
+define('GROQ_MODEL', 'openai/gpt-oss-20b');
+define('GROQ_API_URL', 'https://api.groq.com/openai/v1/chat/completions');
+define('GROQ_ENABLED', GROQ_API_KEY !== '');
+define('GROQ_TIMEOUT', 5);
+define('GROQ_CONNECT_TIMEOUT', 2);
 
 // Email configuration (NEW - for OTP verification)
 define('SMTP_HOST', 'smtp.gmail.com'); // Your SMTP server
 define('SMTP_PORT', 587);
 define('SMTP_USERNAME', 'yhujiinn@gmail.com');
-define('SMTP_PASSWORD', 'vgxxfishqxgqliut');
+// SMTP_PASSWORD is defined in the gitignored config/secrets.php (Gmail App
+// Password — the old plaintext value here was expired/invalid and every
+// email send was failing auth). Fallback keeps the app from fatally
+// erroring if secrets.php is ever missing on a fresh checkout.
+if (!defined('SMTP_PASSWORD')) {
+    define('SMTP_PASSWORD', '');
+}
 define('NOREPLY_EMAIL', 'yhujiinn@gmail.com');
 
 // OTP configurations (NEW)
@@ -137,6 +172,7 @@ function canonicalAppRoute(string $path = ''): string {
         'payment-success.php'           => 'seeker/payment-success-result.php',
         'provider-details.php'          => 'seeker/provider-details.php',
         'providers.php'                 => 'seeker/providers.php',
+        'recommend.php'                 => 'seeker/recommend.php',
         'request-service.php'           => 'seeker/request-service.php',
         'seeker-booking-calendar.php'   => 'seeker/seeker-booking-calendar.php',
         'setup-address.php'             => 'seeker/setup-address.php',

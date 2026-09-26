@@ -7,7 +7,17 @@ require_once '../../config/database.php';
 $database = new Database(); $db = $database->getConnection();
 
 $month  = $_GET['month'] ?? date('Y-m');
-$records = $db->prepare("SELECT tk.*, e.first_name, e.last_name, e.employee_code, e.department, e.basic_salary FROM timekeeping tk JOIN employees e ON tk.employee_id=e.id WHERE DATE_FORMAT(tk.date,'%Y-%m')=:m ORDER BY tk.date DESC, e.first_name");
+// employees has no employee_code column — employee_id is the real code column.
+// timekeeping's date column is actually named work_date, and it has no method
+// column — the manual/qr distinction is read from the matching attendance row's
+// time_in_mode instead (LEFT JOIN since not every timekeeping row has one).
+$records = $db->prepare(
+    "SELECT tk.*, e.first_name, e.last_name, e.employee_id AS employee_code, e.department, e.basic_salary, a.time_in_mode AS method
+     FROM timekeeping tk
+     JOIN employees e ON tk.employee_id=e.id
+     LEFT JOIN attendance a ON a.employee_id=tk.employee_id AND a.date=tk.work_date
+     WHERE DATE_FORMAT(tk.work_date,'%Y-%m')=:m ORDER BY tk.work_date DESC, e.first_name"
+);
 $records->execute([':m'=>$month]);
 $records = $records->fetchAll(PDO::FETCH_ASSOC);
 
@@ -81,7 +91,7 @@ tbody tr:last-child td{border-bottom:none}tbody tr:hover{background:#fafbfc}
             <td><code style="font-size:11px;background:#f0fdf4;color:#276749;padding:2px 6px;border-radius:5px"><?=$r['employee_code']?></code></td>
             <td style="font-weight:600"><?=htmlspecialchars($r['first_name'].' '.$r['last_name'])?></td>
             <td style="font-size:12px;color:var(--muted)"><?=ucfirst($r['department']??'—')?></td>
-            <td style="font-size:12px"><?=date('M d, Y',strtotime($r['date']))?> <span style="color:var(--muted)"><?=date('D',strtotime($r['date']))?></span></td>
+            <td style="font-size:12px"><?=date('M d, Y',strtotime($r['work_date']))?> <span style="color:var(--muted)"><?=date('D',strtotime($r['work_date']))?></span></td>
             <td style="color:#27ae60;font-weight:600"><?=$r['time_in']?date('h:i A',strtotime($r['time_in'])):'—'?></td>
             <td style="color:#e74c3c"><?=$r['time_out']?date('h:i A',strtotime($r['time_out'])):'—'?></td>
             <td style="font-weight:700"><?=$hrs>0?$hrs.'h':'—'?></td>

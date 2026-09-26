@@ -30,7 +30,7 @@ $sql = "
            SUM(CASE WHEN av.status = 'completed' THEN 1 ELSE 0 END) AS completed_count
     FROM providers p
     LEFT JOIN service_reviews r ON r.provider_id = p.id
-    LEFT JOIN service_listings sl ON sl.provider_id = p.id AND sl.status = 'active'
+    LEFT JOIN services sl ON sl.provider_id = p.id AND sl.status = 'active'
     LEFT JOIN availed_services av ON av.provider_id = p.id
     WHERE {$whereSQL}
     GROUP BY p.id

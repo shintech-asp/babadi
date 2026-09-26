@@ -76,7 +76,7 @@ if ($db) {
         $stats['total_providers'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
 
         // Total Services
-        $query = "SELECT COUNT(*) as total FROM service_listings";
+        $query = "SELECT COUNT(*) as total FROM services";
         $stmt = $db->prepare($query);
         $stmt->execute();
         $stats['total_services'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
@@ -94,7 +94,7 @@ if ($db) {
         $stats['pending_requests'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
 
         // Total Revenue (estimated)
-        $query = "SELECT SUM(price) as total FROM service_listings WHERE status = 'active'";
+        $query = "SELECT SUM(price) as total FROM services WHERE status = 'active'";
         $stmt = $db->prepare($query);
         $stmt->execute();
         $stats['total_revenue'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;

@@ -6,6 +6,10 @@ require_once '../config/database.php';
 $database = new Database();
 $db = $database->getConnection();
 $pid = (int)$portal_provider_id;
+// Sidebar defaults to the free tier when $tier_is_paid is unset — this page
+// never loaded portal-tier.php, so a paid provider's own sidebar always
+// showed Pro nav items as locked here.
+require_once 'includes/portal-tier.php';
 
 if (!($portal_role === 'owner' || $portal_dept === 'hr' || $portal_dept === 'all')) {
     header('Location: dashboard.php');

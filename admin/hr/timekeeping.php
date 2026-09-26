@@ -13,24 +13,26 @@ $today = date('Y-m-d');
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'time_in') {
     $emp_id = (int)$_POST['emp_id'];
     $now    = date('Y-m-d H:i:s');
-    // Check if already timed in today
-    $chk = $db->prepare("SELECT id, time_in, time_out FROM timekeeping WHERE employee_id=:e AND date=:d");
+    // Check if already timed in today. timekeeping's date column is
+    // actually named work_date, and it has no method column at all —
+    // the manual/qr distinction is tracked on attendance.time_in_mode instead.
+    $chk = $db->prepare("SELECT id, time_in, time_out FROM timekeeping WHERE employee_id=:e AND work_date=:d");
     $chk->execute([':e'=>$emp_id,':d'=>$today]);
     $rec = $chk->fetch(PDO::FETCH_ASSOC);
     if (!$rec) {
-        $db->prepare("INSERT INTO timekeeping (employee_id,date,time_in,method) VALUES(:e,:d,:t,'manual')")->execute([':e'=>$emp_id,':d'=>$today,':t'=>$now]);
+        $db->prepare("INSERT INTO timekeeping (employee_id,work_date,time_in) VALUES(:e,:d,:t)")->execute([':e'=>$emp_id,':d'=>$today,':t'=>$now]);
         // Attendance record
         $late = (strtotime($now) > strtotime("$today 08:00:00")) ? (int)((strtotime($now)-strtotime("$today 08:00:00"))/60) : 0;
         $status = $late > 0 ? 'late' : 'present';
-        $db->prepare("INSERT INTO attendance (employee_id,date,time_in,status,late_minutes) VALUES(:e,:d,:t,:s,:l) ON DUPLICATE KEY UPDATE time_in=:t,status=:s,late_minutes=:l")->execute([':e'=>$emp_id,':d'=>$today,':t'=>$now,':s'=>$status,':l'=>$late]);
+        $db->prepare("INSERT INTO attendance (employee_id,date,time_in,status,late_minutes,time_in_mode) VALUES(:e,:d,:t,:s,:l,'manual') ON DUPLICATE KEY UPDATE time_in=:t,status=:s,late_minutes=:l,time_in_mode='manual'")->execute([':e'=>$emp_id,':d'=>$today,':t'=>$now,':s'=>$status,':l'=>$late]);
         $success = "Time In recorded.";
     } elseif (!$rec['time_out']) {
-        $db->prepare("UPDATE timekeeping SET time_out=:t WHERE employee_id=:e AND date=:d")->execute([':t'=>$now,':e'=>$emp_id,':d'=>$today]);
-        // OT/Undertime
+        $db->prepare("UPDATE timekeeping SET time_out=:t WHERE employee_id=:e AND work_date=:d")->execute([':t'=>$now,':e'=>$emp_id,':d'=>$today]);
+        // OT/Undertime — attendance's real columns are overtime_min/undertime_min.
         $end_sched = strtotime("$today 17:00:00");
         $ot   = max(0,(int)((strtotime($now)-$end_sched)/60));
         $ut   = max(0,(int)(($end_sched-strtotime($now))/60));
-        $db->prepare("UPDATE attendance SET time_out=:t,overtime_minutes=:ot,undertime_minutes=:ut WHERE employee_id=:e AND date=:d")->execute([':t'=>$now,':ot'=>$ot,':ut'=>$ut,':e'=>$emp_id,':d'=>$today]);
+        $db->prepare("UPDATE attendance SET time_out=:t,overtime_min=:ot,undertime_min=:ut WHERE employee_id=:e AND date=:d")->execute([':t'=>$now,':ot'=>$ot,':ut'=>$ut,':e'=>$emp_id,':d'=>$today]);
         $success = "Time Out recorded.";
     } else { $error = "Employee already timed in and out today."; }
 }
@@ -44,28 +46,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'qr_scan
     if (!$emp_row) { $error = "Invalid QR code."; }
     else {
         $now = date('Y-m-d H:i:s');
-        $chk = $db->prepare("SELECT id,time_in,time_out FROM timekeeping WHERE employee_id=:e AND date=:d");
+        $chk = $db->prepare("SELECT id,time_in,time_out FROM timekeeping WHERE employee_id=:e AND work_date=:d");
         $chk->execute([':e'=>$emp_row['id'],':d'=>$today]);
         $rec = $chk->fetch(PDO::FETCH_ASSOC);
         if (!$rec) {
-            $db->prepare("INSERT INTO timekeeping (employee_id,date,time_in,method) VALUES(:e,:d,:t,'qr')")->execute([':e'=>$emp_row['id'],':d'=>$today,':t'=>$now]);
+            $db->prepare("INSERT INTO timekeeping (employee_id,work_date,time_in) VALUES(:e,:d,:t)")->execute([':e'=>$emp_row['id'],':d'=>$today,':t'=>$now]);
             $late   = (strtotime($now) > strtotime("$today 08:00:00")) ? (int)((strtotime($now)-strtotime("$today 08:00:00"))/60) : 0;
             $status = $late > 0 ? 'late' : 'present';
-            $db->prepare("INSERT INTO attendance (employee_id,date,time_in,status,late_minutes,qr_scan) VALUES(:e,:d,:t,:s,:l,1) ON DUPLICATE KEY UPDATE time_in=:t,status=:s,late_minutes=:l,qr_scan=1")->execute([':e'=>$emp_row['id'],':d'=>$today,':t'=>$now,':s'=>$status,':l'=>$late]);
+            $db->prepare("INSERT INTO attendance (employee_id,date,time_in,status,late_minutes,time_in_mode) VALUES(:e,:d,:t,:s,:l,'qr') ON DUPLICATE KEY UPDATE time_in=:t,status=:s,late_minutes=:l,time_in_mode='qr'")->execute([':e'=>$emp_row['id'],':d'=>$today,':t'=>$now,':s'=>$status,':l'=>$late]);
             $success = "✅ Time In: " . $emp_row['first_name'] . " " . $emp_row['last_name'] . " — " . date('h:i A');
         } elseif (!$rec['time_out']) {
-            $db->prepare("UPDATE timekeeping SET time_out=:t WHERE employee_id=:e AND date=:d")->execute([':t'=>$now,':e'=>$emp_row['id'],':d'=>$today]);
+            $db->prepare("UPDATE timekeeping SET time_out=:t WHERE employee_id=:e AND work_date=:d")->execute([':t'=>$now,':e'=>$emp_row['id'],':d'=>$today]);
             $success = "✅ Time Out: " . $emp_row['first_name'] . " " . $emp_row['last_name'] . " — " . date('h:i A');
         } else { $error = $emp_row['first_name'] . " already completed timekeeping today."; }
     }
 }
 
 // ── Today's records ───────────────────────────────────────────
-$records = $db->prepare("SELECT tk.*, e.first_name, e.last_name, e.employee_code, e.position, e.department FROM timekeeping tk JOIN employees e ON tk.employee_id=e.id WHERE tk.date=:d ORDER BY tk.time_in DESC");
+// employees has no employee_code column — employee_id is the real code column.
+// timekeeping's date column is actually named work_date.
+$records = $db->prepare("SELECT tk.*, e.first_name, e.last_name, e.employee_id AS employee_code, e.position, e.department FROM timekeeping tk JOIN employees e ON tk.employee_id=e.id WHERE tk.work_date=:d ORDER BY tk.time_in DESC");
 $records->execute([':d'=>$today]);
 $today_records = $records->fetchAll(PDO::FETCH_ASSOC);
 
-$employees = $db->query("SELECT id,employee_code,first_name,last_name,qr_token FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
+$employees = $db->query("SELECT id,employee_id AS employee_code,first_name,last_name,qr_token FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
 
 $active_menu = 'hr_time';
 ?>
@@ -180,8 +184,14 @@ tbody tr:last-child td{border-bottom:none}
             <td style="font-size:12px"><?=ucfirst($r['department']??'—')?></td>
             <td style="color:#27ae60;font-weight:600"><?=$r['time_in']?date('h:i A',strtotime($r['time_in'])):'—'?></td>
             <td style="color:#e74c3c;font-weight:600"><?=$r['time_out']?date('h:i A',strtotime($r['time_out'])):'<span style="color:var(--muted)">Not yet</span>'?></td>
-            <td><span style="background:<?=$r['method']==='qr'?'#e9d8fd':'#e2e8f0'?>;color:<?=$r['method']==='qr'?'#6b46c1':'#4a5568'?>;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700"><?=strtoupper($r['method'])?></span></td>
-            <td><?php $att=$db->prepare("SELECT status FROM attendance WHERE employee_id=:e AND date=:d");$att->execute([':e'=>$r['employee_id'],':d'=>$today]);$arow=$att->fetch(PDO::FETCH_ASSOC);?>
+            <?php
+            // timekeeping has no method column — the manual/qr distinction lives
+            // on the matching attendance row's time_in_mode instead.
+            $att=$db->prepare("SELECT status, time_in_mode FROM attendance WHERE employee_id=:e AND date=:d");$att->execute([':e'=>$r['employee_id'],':d'=>$today]);$arow=$att->fetch(PDO::FETCH_ASSOC);
+            $method = $arow['time_in_mode'] ?? 'manual';
+            ?>
+            <td><span style="background:<?=$method==='qr'?'#e9d8fd':'#e2e8f0'?>;color:<?=$method==='qr'?'#6b46c1':'#4a5568'?>;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700"><?=strtoupper($method)?></span></td>
+            <td>
                 <span class="badge b-<?=$arow['status']??'present'?>"><?=ucfirst($arow['status']??'Present')?></span>
             </td>
         </tr>

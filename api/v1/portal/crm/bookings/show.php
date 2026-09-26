@@ -1,5 +1,5 @@
 <?php
-require_once dirname(__DIR__, 3) . '/_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 
@@ -19,14 +19,14 @@ $sql = "SELECT av.*,
                u.email         AS seeker_email,
                u.phone         AS seeker_phone,
                u.address       AS seeker_address,
-               sl.title        AS listing_title,
+               sl.service_name AS listing_title,
                sl.price        AS listing_price,
                sl.pricing_type AS listing_pricing_type,
                sl.images       AS listing_images,
                sc.name         AS category_name
         FROM availed_services av
         JOIN users u ON u.id = COALESCE(av.seeker_user_id, av.user_id)
-        LEFT JOIN service_listings sl ON sl.id = av.service_id
+        LEFT JOIN services sl ON sl.id = av.service_id
         LEFT JOIN service_categories sc ON sc.id = sl.category_id
         WHERE av.id = :id AND av.provider_id = :pid
         LIMIT 1";

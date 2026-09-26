@@ -1,5 +1,5 @@
 <?php
-require_once dirname(__DIR__, 3) . '/_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 
@@ -25,12 +25,15 @@ if ($status !== null && $status !== '') {
 
 $where = 'WHERE ' . implode(' AND ', $whereClauses);
 
-$countStmt = db()->prepare("SELECT COUNT(DISTINCT sl.id) FROM service_listings sl $where");
+// service_listings was merged into services (see CLAUDE.md's "Recent Work
+// Log") — service_name AS title keeps this response shape identical to any
+// existing client parsing it.
+$countStmt = db()->prepare("SELECT COUNT(DISTINCT sl.id) FROM services sl $where");
 $countStmt->execute($params);
 $total = (int)$countStmt->fetchColumn();
 
 $sql = "SELECT sl.id,
-               sl.title,
+               sl.service_name AS title,
                sl.description,
                sl.price,
                sl.pricing_type,
@@ -42,7 +45,7 @@ $sql = "SELECT sl.id,
                sc.name AS category_name,
                ROUND(AVG(r.rating), 1) AS avg_rating,
                COUNT(r.id)             AS review_count
-        FROM service_listings sl
+        FROM services sl
         LEFT JOIN service_categories sc ON sc.id = sl.category_id
         LEFT JOIN service_reviews r ON r.provider_id = sl.provider_id
         $where

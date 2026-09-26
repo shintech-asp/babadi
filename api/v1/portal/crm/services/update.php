@@ -1,5 +1,5 @@
 <?php
-require_once dirname(__DIR__, 3) . '/_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('POST');
 
@@ -11,8 +11,9 @@ $pdo = db();
 
 $id = (int)req_inp('id', 'Listing ID');
 
-// Verify ownership
-$stmt = $pdo->prepare('SELECT id FROM service_listings WHERE id = :id AND provider_id = :pid LIMIT 1');
+// Verify ownership. service_listings was merged into services (see
+// CLAUDE.md's "Recent Work Log").
+$stmt = $pdo->prepare('SELECT id FROM services WHERE id = :id AND provider_id = :pid LIMIT 1');
 $stmt->execute([':id' => $id, ':pid' => $pid]);
 if (!$stmt->fetch()) {
     fail('Listing not found.', 404);
@@ -23,8 +24,8 @@ $params = [':id' => $id, ':pid' => $pid];
 
 $title = inp('title');
 if ($title !== null) {
-    $fields[] = 'title = :title';
-    $params[':title'] = trim($title);
+    $fields[] = 'service_name = :service_name';
+    $params[':service_name'] = trim($title);
 }
 
 $description = inp('description');
@@ -73,7 +74,7 @@ if (empty($fields)) {
 
 $fields[] = 'updated_at = NOW()';
 
-$sql = 'UPDATE service_listings SET ' . implode(', ', $fields)
+$sql = 'UPDATE services SET ' . implode(', ', $fields)
      . ' WHERE id = :id AND provider_id = :pid';
 
 $pdo->prepare($sql)->execute($params);

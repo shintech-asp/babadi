@@ -109,6 +109,30 @@ function paginationParams($search, $category, $city, $sort) {
     return implode('&', $parts);
 }
 $paginationQS = paginationParams($search, $category, $city, $sort);
+
+// Category -> icon, matched against the same category values provider/services.php's
+// Add/Edit Service form offers (pest_control, termite, rodent, mosquito, general).
+function serviceCategoryIcon(?string $category): string {
+    $icons = [
+        'pest_control' => 'fa-spray-can-sparkles',
+        'termite'      => 'fa-bug',
+        'rodent'       => 'fa-paw',
+        'mosquito'     => 'fa-mosquito',
+        'general'      => 'fa-shield-halved',
+    ];
+    return $icons[$category] ?? 'fa-shield-halved';
+}
+
+// requires_inspection means the listed price is only an estimate — the real
+// price is set after an on-site inspection (see CLAUDE.md's "Pricing Model"
+// log entry). Shown as a chip on the price so seekers aren't misled into
+// thinking a Custom Quote figure is the final charge.
+function servicePricingLabel(array $listing): array {
+    if (!empty($listing['requires_inspection'])) {
+        return ['label' => 'Estimated price', 'chip' => 'Estimate only'];
+    }
+    return ['label' => 'Fixed price', 'chip' => 'Fixed price'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -122,8 +146,7 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
     <style>
         .services-browse-page {
             min-height: 100vh;
-            background: #f5f7fa;
-            padding: 40px 20px;
+            padding: 40px 20px 60px;
         }
 
         .services-container {
@@ -133,40 +156,45 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
 
         .page-header {
             text-align: center;
-            margin-bottom: 50px;
+            margin-bottom: 36px;
         }
 
         .page-header h1 {
-            font-size: 36px;
-            color: var(--dark-color);
-            margin-bottom: 10px;
+            font-size: 34px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
         }
 
         .page-header p {
-            font-size: 16px;
-            color: #666;
+            font-size: 15px;
+            color: var(--su-muted, #666);
         }
 
         .filters-section {
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 22px 24px;
+            margin-bottom: 28px;
         }
 
         .filter-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--dark-color);
-            margin-bottom: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--su-muted, #666);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
+
+        .filter-title i { color: var(--su-primary, var(--primary)); }
 
         .filter-group {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
+            grid-template-columns: 1.4fr 1fr 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 18px;
         }
 
         .filter-item {
@@ -175,266 +203,303 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
         }
 
         .filter-item label {
-            font-size: 14px;
-            font-weight: 500;
-            color: #333;
-            margin-bottom: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--su-muted, #666);
+            margin-bottom: 7px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
+
+        .filter-item label i { font-size: 11px; opacity: 0.75; }
 
         .filter-item input,
         .filter-item select {
-            padding: 10px 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
+            padding: 11px 13px;
             font-size: 14px;
             font-family: inherit;
-        }
-
-        .filter-item input:focus,
-        .filter-item select:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
         }
 
         .filter-buttons {
             display: flex;
             gap: 10px;
-            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--su-border, #eee);
         }
 
-        .btn-search {
-            padding: 10px 20px;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            flex: 1;
-        }
-
-        .btn-search:hover { background: #2980b9; }
-
+        .btn-search,
         .btn-reset {
-            padding: 10px 20px;
-            background: #ecf0f1;
-            color: #333;
+            padding: 11px 22px;
             border: none;
-            border-radius: 6px;
-            font-weight: 600;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 14px;
             cursor: pointer;
-            transition: all 0.3s;
-            text-decoration: none;
+            transition: all 0.2s;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            justify-content: center;
+            gap: 8px;
+            text-decoration: none;
         }
 
-        .btn-reset:hover { background: #bdc3c7; }
+        .btn-search { flex: 2; }
+        .btn-reset { flex: 1; }
 
         .results-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
+            padding: 0 4px;
         }
 
         .results-count {
             font-size: 14px;
-            color: #666;
         }
 
-        .services-grid {
+        .results-count strong {
+            color: var(--su-text, var(--dark-color));
+            font-size: 16px;
+        }
+
+        /*
+          Card component below uses an "lst-" prefixed namespace on purpose.
+          The previous version reused generic names like .service-header,
+          which assets/css/style.css (loaded earlier on this page for
+          unrelated reasons) also defines with display:flex for a completely
+          different card layout — that leaked in silently and broke the
+          stacking. These lst- classes don't exist anywhere else in the
+          codebase, so there is no shared stylesheet that can collide with
+          them. Colors still come from the shared --su-* tokens (set on
+          body.seeker-unified) so this still matches the site's palette.
+        */
+        .lst-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 25px;
+            gap: 22px;
             margin-bottom: 40px;
         }
 
-        .service-card {
-            background: white;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            transition: all 0.3s;
+        .lst-card {
             display: flex;
             flex-direction: column;
+            background: var(--su-surface, #fff);
+            border: 1px solid var(--su-border, #e2e8f0);
+            border-radius: var(--su-radius, 14px);
+            box-shadow: var(--su-shadow, 0 8px 22px rgba(18,33,58,.08));
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
 
-        .service-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        .lst-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--su-shadow-hover, 0 14px 32px rgba(18,33,58,.14));
         }
 
-        .service-header {
-            background: linear-gradient(135deg, var(--primary), #2980b9);
+        .lst-topbar {
+            height: 5px;
+            width: 100%;
+            background: var(--su-gradient, linear-gradient(135deg,#2b6cb0,#3b82f6));
+            flex-shrink: 0;
+        }
+
+        .lst-content {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
             padding: 20px;
-            color: white;
         }
 
-        .service-category {
-            font-size: 12px;
-            color: rgba(255,255,255,0.8);
+        .lst-row-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .lst-icon-badge {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: rgba(43, 108, 176, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            color: var(--su-primary, #2b6cb0);
+            flex-shrink: 0;
+        }
+
+        .lst-chip {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #eaf2ff;
+            color: var(--su-primary-dark, #245a96);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .lst-eyebrow {
+            font-size: 11px;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .service-name {
-            font-size: 20px;
-            font-weight: 600;
+            letter-spacing: 0.6px;
+            color: var(--su-muted, #888);
             margin-bottom: 5px;
         }
 
-        .service-provider {
-            font-size: 13px;
-            opacity: 0.9;
+        .lst-title {
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.3;
+            color: var(--su-text, #1a2744);
+            margin-bottom: 4px;
         }
 
-        .service-body {
-            padding: 20px;
-            flex-grow: 1;
+        .lst-by {
+            font-size: 12.5px;
+            color: var(--su-muted, #667);
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 16px;
         }
 
-        .service-description {
-            font-size: 14px;
-            color: #666;
+        .lst-by i { font-size: 11px; }
+
+        .lst-desc {
+            font-size: 13.5px;
+            color: var(--su-muted, #666);
             line-height: 1.6;
-            margin-bottom: 15px;
+            margin-bottom: 14px;
             flex-grow: 1;
         }
 
-        .service-details {
+        .lst-loc {
+            font-size: 12.5px;
+            color: var(--su-muted, #888);
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .lst-loc i { color: var(--su-primary, #2b6cb0); font-size: 12px; }
+
+        .lst-meta-row {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
+            align-items: flex-end;
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--su-border, #eee);
         }
 
-        .service-price {
-            font-size: 24px;
-            font-weight: bold;
-            color: var(--primary);
+        .lst-price-block {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
         }
 
-        .service-rating {
+        .lst-price-eyebrow {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--su-muted, #999);
+        }
+
+        .lst-price {
+            font-size: 21px;
+            font-weight: 800;
+            color: var(--su-primary, #2b6cb0);
+        }
+
+        .lst-rating {
             display: flex;
             align-items: center;
-            gap: 5px;
-            font-size: 13px;
+            gap: 4px;
+            font-size: 12.5px;
         }
 
-        .service-rating i { color: #f39c12; }
+        .lst-rating i { color: #f39c12; font-size: 12px; }
+        .lst-rating span { font-weight: 700; color: var(--su-text, #333); }
+        .lst-rating .lst-new { color: var(--su-muted, #999); font-weight: 500; }
 
-        .service-location {
-            font-size: 13px;
-            color: #999;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .service-actions {
+        .lst-actions {
             display: flex;
             gap: 10px;
         }
 
-        .service-actions a {
+        .lst-actions a {
             flex: 1;
-            padding: 10px;
+            padding: 11px;
             text-align: center;
-            border-radius: 6px;
             text-decoration: none;
             font-size: 13px;
-            font-weight: 600;
-            transition: all 0.3s;
+            font-weight: 700;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
         }
 
-        .btn-request {
-            background: var(--primary);
-            color: white;
-        }
-
-        .btn-request:hover {
-            background: #2980b9;
-            transform: translateY(-1px);
-        }
-
-        .btn-provider {
-            background: #ecf0f1;
-            color: #333;
-        }
-
-        .btn-provider:hover { background: #bdc3c7; }
-
         .empty-state {
             text-align: center;
             padding: 60px 20px;
-            background: white;
-            border-radius: 12px;
         }
 
         .empty-state i {
-            font-size: 64px;
-            color: #bdc3c7;
-            margin-bottom: 20px;
+            font-size: 56px;
+            color: #c3d3ea;
+            margin-bottom: 18px;
             display: block;
         }
 
         .empty-state h2 {
-            font-size: 24px;
-            color: var(--dark-color);
-            margin-bottom: 10px;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 8px;
         }
 
-        .empty-state p { color: #666; }
+        .empty-state p { color: var(--su-muted, #666); margin-bottom: 18px; }
 
         .pagination {
             display: flex;
             justify-content: center;
-            gap: 10px;
-            margin-top: 40px;
+            gap: 8px;
+            margin-top: 36px;
             flex-wrap: wrap;
         }
 
         .pagination a,
         .pagination span {
-            padding: 10px 15px;
-            border-radius: 6px;
+            padding: 9px 15px;
+            font-size: 13.5px;
+            font-weight: 600;
             text-decoration: none;
-            color: #333;
-            border: 1px solid #ddd;
-            transition: all 0.3s;
         }
 
-        .pagination a:hover {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
+        @media (max-width: 900px) {
+            .filter-group { grid-template-columns: 1fr 1fr; }
         }
 
-        .pagination .active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-        }
-
-        @media (max-width: 768px) {
-            .page-header h1 { font-size: 28px; }
+        @media (max-width: 600px) {
+            .services-browse-page { padding: 24px 14px 40px; }
+            .page-header h1 { font-size: 26px; }
             .filter-group { grid-template-columns: 1fr; }
-            .services-grid { grid-template-columns: 1fr; }
-            .results-header { flex-direction: column; gap: 15px; align-items: flex-start; }
+            .filter-buttons { flex-direction: column; }
+            .lst-grid { grid-template-columns: 1fr; }
+            .results-header { flex-direction: column; gap: 10px; align-items: flex-start; }
         }
     </style>
 </head>
@@ -452,18 +517,18 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
 
             <!-- Filters -->
             <div class="filters-section">
-                <h3 class="filter-title">Search &amp; Filter Services</h3>
+                <h3 class="filter-title"><i class="fas fa-sliders"></i> Search &amp; Filter Services</h3>
                 <form method="GET" action="<?php echo appUrl('listings.php'); ?>">
                     <div class="filter-group">
                         <div class="filter-item">
-                            <label for="search">Service Name</label>
+                            <label for="search"><i class="fas fa-magnifying-glass"></i> Service Name</label>
                             <input type="text" id="search" name="search"
                                    value="<?php echo htmlspecialchars($search); ?>"
                                    placeholder="e.g., Termite Control, Mosquito Treatment...">
                         </div>
 
                         <div class="filter-item">
-                            <label for="category">Category</label>
+                            <label for="category"><i class="fas fa-tag"></i> Category</label>
                             <select id="category" name="category">
                                 <option value="">All Categories</option>
                                 <?php foreach($categories as $c): ?>
@@ -476,22 +541,20 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
                         </div>
 
                         <div class="filter-item">
-                            <label for="province">Province</label>
-                            <select id="province" name="province">
-                                <option value="">-- Select Province --</option>
-                                <option value="Cavite" selected>Cavite</option>
+                            <label for="city"><i class="fas fa-location-dot"></i> City/Municipality</label>
+                            <select id="city" name="city">
+                                <option value="">All Cities</option>
+                                <?php foreach($cities as $ct): ?>
+                                    <option value="<?php echo htmlspecialchars($ct['city']); ?>"
+                                            <?php echo ($city === $ct['city']) ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($ct['city']); ?>
+                                    </option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
 
                         <div class="filter-item">
-                            <label for="city">City/Municipality</label>
-                            <select id="city" name="city" disabled>
-                                <option value="">-- Select City/Municipality --</option>
-                            </select>
-                        </div>
-
-                        <div class="filter-item">
-                            <label for="sort">Sort By</label>
+                            <label for="sort"><i class="fas fa-arrow-down-wide-short"></i> Sort By</label>
                             <select id="sort" name="sort">
                                 <option value="recent"     <?php echo ($sort === 'recent')     ? 'selected' : ''; ?>>Newest</option>
                                 <option value="price_low"  <?php echo ($sort === 'price_low')  ? 'selected' : ''; ?>>Price: Low to High</option>
@@ -524,7 +587,7 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
 
             <!-- Services Grid -->
             <?php if(count($listings) > 0): ?>
-                <div class="services-grid">
+                <div class="lst-grid">
                     <?php foreach($listings as $listing):
                         // Build payment settings for deep-linking into the avail modal
                         $ps       = json_decode($listing['payment_settings'] ?? '{}', true) ?? [];
@@ -532,35 +595,37 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
                         $ps_pct   = (float)($ps['dp_percent'] ?? 50);
                         $ps_fixed = (float)($ps['dp_fixed']   ?? 0);
                         $svc_price = (float)($listing['price'] ?? 0);
+
+                        $pricingInfo = servicePricingLabel($listing);
+                        $categoryLabel = ucwords(str_replace('_', ' ', (string)($listing['category_name'] ?? 'General')));
                     ?>
-                        <div class="service-card">
-                            <div class="service-header">
-                                <div class="service-category">
-                                    <?php echo htmlspecialchars($listing['category_name'] ?? 'General'); ?>
+                        <div class="lst-card">
+                            <div class="lst-topbar"></div>
+                            <div class="lst-content">
+                                <div class="lst-row-top">
+                                    <div class="lst-icon-badge"><i class="fas <?php echo serviceCategoryIcon($listing['category_name'] ?? null); ?>"></i></div>
+                                    <span class="lst-chip"><i class="fas <?php echo empty($listing['requires_inspection']) ? 'fa-tag' : 'fa-magnifying-glass-dollar'; ?>"></i> <?php echo htmlspecialchars($pricingInfo['chip']); ?></span>
                                 </div>
-                                <h3 class="service-name">
-                                    <?php echo htmlspecialchars($listing['service_name']); ?>
-                                </h3>
-                                <p class="service-provider">
-                                    by <?php echo htmlspecialchars($listing['company_name']); ?>
-                                </p>
-                            </div>
 
-                            <div class="service-body">
-                                <p class="service-description">
-                                    <?php echo htmlspecialchars(substr($listing['description'] ?? '', 0, 80)) . (strlen($listing['description'] ?? '') > 80 ? '...' : ''); ?>
+                                <div class="lst-eyebrow"><?php echo htmlspecialchars($categoryLabel); ?></div>
+                                <h3 class="lst-title"><?php echo htmlspecialchars($listing['service_name']); ?></h3>
+                                <p class="lst-by"><i class="fas fa-building"></i> <?php echo htmlspecialchars($listing['company_name']); ?></p>
+
+                                <p class="lst-desc">
+                                    <?php echo htmlspecialchars(substr($listing['description'] ?? '', 0, 120)) . (strlen($listing['description'] ?? '') > 120 ? '...' : ''); ?>
                                 </p>
 
-                                <div class="service-location">
+                                <div class="lst-loc">
                                     <i class="fas fa-map-marker-alt"></i>
                                     <?php echo htmlspecialchars($listing['city'] ?? 'Location not specified'); ?>
                                 </div>
 
-                                <div class="service-details">
-                                    <div class="service-price">
-                                        &#8369;<?php echo number_format($listing['price'], 2); ?>
+                                <div class="lst-meta-row">
+                                    <div class="lst-price-block">
+                                        <span class="lst-price-eyebrow"><?php echo htmlspecialchars($pricingInfo['label']); ?></span>
+                                        <div class="lst-price">&#8369;<?php echo number_format($listing['price'], 2); ?></div>
                                     </div>
-                                    <div class="service-rating">
+                                    <div class="lst-rating">
                                         <?php if($listing['provider_rating']): ?>
                                             <?php for($i = 1; $i <= 5; $i++): ?>
                                                 <?php if($i <= floor($listing['provider_rating'])): ?>
@@ -571,12 +636,12 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
                                             <?php endfor; ?>
                                             <span><?php echo number_format($listing['provider_rating'], 1); ?></span>
                                         <?php else: ?>
-                                            <span style="color:#999;">New Provider</span>
+                                            <span class="lst-new">New Provider</span>
                                         <?php endif; ?>
                                     </div>
                                 </div>
 
-                                <div class="service-actions">
+                                <div class="lst-actions">
                                     <!--
                                         "Request Service" goes to provider-details.php with:
                                         - avail_service = service ID  → auto-opens the avail modal for that service
@@ -630,41 +695,6 @@ $paginationQS = paginationParams($search, $category, $city, $sort);
     </div>
 
     <?php include appPath('includes/footer.php'); ?>
-    <script>
-        const provinceCities = {
-            'Cavite': [
-                'Cavite City','Tagaytay City','Trece Martires City','Alfonso','Amadeo',
-                'Bacoor','Carmona','Dasmariñas','General Emilio Aguinaldo',
-                'General Mariano Alvarez','General Trias','Imus','Indang','Kawit',
-                'Magallanes','Maragondon','Mendez','Naic','Noveleta','Rosario',
-                'Silang','Tanza','Ternate'
-            ]
-        };
-
-        document.getElementById('province').addEventListener('change', function() {
-            const citySelect = document.getElementById('city');
-            citySelect.innerHTML = '<option value="">-- Select City/Municipality --</option>';
-            if (this.value && provinceCities[this.value]) {
-                citySelect.disabled = false;
-                provinceCities[this.value].forEach(c => {
-                    const opt = document.createElement('option');
-                    opt.value = c; opt.textContent = c;
-                    citySelect.appendChild(opt);
-                });
-            } else {
-                citySelect.disabled = true;
-            }
-        });
-
-        window.addEventListener('load', function() {
-            const savedCity = '<?php echo htmlspecialchars($city ?? ''); ?>';
-            document.getElementById('province').value = 'Cavite';
-            document.getElementById('province').dispatchEvent(new Event('change'));
-            if (savedCity) {
-                setTimeout(() => { document.getElementById('city').value = savedCity; }, 100);
-            }
-        });
-    </script>
 </body>
 </html>
 

@@ -1,5 +1,5 @@
 <?php
-require_once dirname(__DIR__, 3) . '/_bootstrap.php';
+require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 
@@ -42,12 +42,12 @@ $sql = "SELECT av.id,
                av.preferred_date,
                av.preferred_time,
                av.payment_method,
-               sl.title AS service_name,
+               sl.service_name,
                u.first_name AS seeker_first,
                u.last_name  AS seeker_last
         FROM availed_services av
         JOIN users u ON u.id = COALESCE(av.seeker_user_id, av.user_id)
-        LEFT JOIN service_listings sl ON sl.id = av.service_id
+        LEFT JOIN services sl ON sl.id = av.service_id
         $where
         ORDER BY av.created_at DESC
         LIMIT :limit OFFSET :offset";

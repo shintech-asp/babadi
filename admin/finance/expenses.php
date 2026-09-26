@@ -18,8 +18,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'add') {
     $ref    = 'EXP-' . strtoupper(substr(uniqid(),0,8));
     if (!$desc || $amount <= 0) { $error = 'Description and amount are required.'; }
     else {
-        $db->prepare("INSERT INTO expense_records (reference_no,category,description,amount,date,vendor,payment_method,notes,recorded_by,status) VALUES(:r,:c,:d,:a,:dt,:v,:m,:n,:by,'approved')")
-        ->execute([':r'=>$ref,':c'=>$cat,':d'=>$desc,':a'=>$amount,':dt'=>$date,':v'=>$vendor,':m'=>$method,':n'=>$notes,':by'=>$_SESSION['admin_id']]);
+        // expense_records' real columns are expense_date/receipt_number/paid_to
+        // (not date/reference_no/vendor), and it has no notes, recorded_by or
+        // status column at all — notes are folded into description instead of
+        // being silently dropped; recorded_by/status are left out (nothing reads
+        // them, and every row here already represents a finalized expense).
+        // expense_type is a separate NOT NULL column with no default (distinct
+        // from the nullable category column the page's filter dropdown uses) —
+        // populated with the same category value so both stay in sync.
+        $descWithNotes = $notes !== '' ? ($desc . ' — ' . $notes) : $desc;
+        $db->prepare("INSERT INTO expense_records (receipt_number,category,expense_type,description,amount,expense_date,paid_to,payment_method) VALUES(:r,:c,:et,:d,:a,:dt,:v,:m)")
+        ->execute([':r'=>$ref,':c'=>$cat,':et'=>$cat,':d'=>$descWithNotes,':a'=>$amount,':dt'=>$date,':v'=>$vendor,':m'=>$method]);
         $success = "Expense recorded. Ref: $ref";
     }
 }
@@ -30,10 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'delete'
 
 $month   = $_GET['month'] ?? date('Y-m');
 $cat_f   = $_GET['cat'] ?? '';
-$sql     = "SELECT * FROM expense_records WHERE DATE_FORMAT(date,'%Y-%m')=:m";
+$sql     = "SELECT *, receipt_number AS reference_no, expense_date AS date, paid_to AS vendor FROM expense_records WHERE DATE_FORMAT(expense_date,'%Y-%m')=:m";
 $params  = [':m'=>$month];
 if ($cat_f) { $sql .= " AND category=:c"; $params[':c']=$cat_f; }
-$sql .= " ORDER BY date DESC";
+$sql .= " ORDER BY expense_date DESC";
 $stmt = $db->prepare($sql); $stmt->execute($params);
 $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $total_month = array_sum(array_column($records,'amount'));

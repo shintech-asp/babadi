@@ -15,9 +15,12 @@ if (!is_numeric($price) || (float)$price <= 0) {
     fail('Price must be a positive number.');
 }
 
-$allowed_pricing = ['fixed', 'hourly', 'per_sqm'];
+// Must match services.pricing_type's actual ENUM (confirmed via DESCRIBE) —
+// 'per_sqm' was copied from a different schema version and isn't a real
+// column value; inserting it 500s under strict SQL mode.
+$allowed_pricing = ['fixed', 'per_sqft', 'hourly', 'custom'];
 if (!in_array($pricing_type, $allowed_pricing, true)) {
-    fail('Pricing type must be one of: fixed, hourly, per_sqm.');
+    fail('Pricing type must be one of: fixed, per_sqft, hourly, custom.');
 }
 
 $pdo = db();
@@ -28,6 +31,13 @@ if (!$cat_stmt->fetch()) {
 }
 
 $is_emergency_available = (bool) inp('is_emergency_available', false);
+$is_eco_friendly = (bool) inp('is_eco_friendly', false);
+// Non-fixed pricing can't be charged upfront — the final price is only
+// knowable after an on-site inspection, so it forces requires_inspection
+// on regardless of what was posted. Mirrors the same rule in
+// provider/services.php's add/edit handlers (see CLAUDE.md's "Recent
+// Work Log").
+$requires_inspection = ($pricing_type !== 'fixed') ? true : (bool) inp('requires_inspection', false);
 
 // Handle image uploads
 $image_paths = [];
@@ -103,22 +113,28 @@ if ($files_raw !== null) {
 
 $images_json = json_encode($image_paths);
 
+// service_listings was merged into services (the same table the web app's
+// own provider/services.php and the seeker booking flow use) so a service
+// created here is now visible and bookable through the website too — see
+// CLAUDE.md's "Recent Work Log" for the full centralization writeup.
 $stmt = $pdo->prepare(
-    'INSERT INTO service_listings
-        (provider_id, title, description, price, pricing_type, category_id, images, is_emergency_available, status, created_at)
+    'INSERT INTO services
+        (provider_id, service_name, description, price, pricing_type, category_id, images, is_eco_friendly, is_emergency_available, requires_inspection, status, created_at)
      VALUES
-        (:provider_id, :title, :description, :price, :pricing_type, :category_id, :images, :is_emergency_available, :status, NOW())'
+        (:provider_id, :service_name, :description, :price, :pricing_type, :category_id, :images, :is_eco_friendly, :is_emergency_available, :requires_inspection, :status, NOW())'
 );
 
 $stmt->execute([
     ':provider_id'           => $p['id'],
-    ':title'                 => $title,
+    ':service_name'          => $title,
     ':description'           => $description,
     ':price'                 => (float)$price,
     ':pricing_type'          => $pricing_type,
     ':category_id'           => (int)$category_id,
     ':images'                => $images_json,
+    ':is_eco_friendly'       => $is_eco_friendly ? 1 : 0,
     ':is_emergency_available' => $is_emergency_available ? 1 : 0,
+    ':requires_inspection'   => $requires_inspection ? 1 : 0,
     ':status'                => 'active',
 ]);
 

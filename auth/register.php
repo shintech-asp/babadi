@@ -221,13 +221,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             $success = "Registration successful! A verification code has been sent to <strong>" . htmlspecialchars($email) . "</strong>. Please check your inbox and spam folder.";
                             header("refresh:3;url=" . appUrl('verify.php'));
                         } else {
-                            // If email fails, delete the user and show error
-                            $deleteQuery = "DELETE FROM users WHERE id = :id";
-                            $deleteStmt = $db->prepare($deleteQuery);
-                            $deleteStmt->bindParam(':id', $user_id);
-                            $deleteStmt->execute();
-                            
-                            $error = "Registration failed: Could not send verification email. Please check your email address and try again.";
+                            // Email delivery failed (e.g. SMTP outage) — keep the account
+                            // instead of deleting it. verify.php only requires
+                            // verification_email in session to render, and its own
+                            // resend_otp action independently retries the send, so
+                            // routing here lets the seeker retry without re-registering
+                            // from scratch and losing their chosen password.
+                            $_SESSION['verification_email'] = $email;
+                            $_SESSION['user_id_temp'] = $user_id;
+
+                            $success = "Registration successful! We couldn't send the verification email right now, but your account was created. Click \"Resend Code\" on the next page to try again.";
+                            header("refresh:3;url=" . appUrl('verify.php'));
                         }
                     }
                 } else {

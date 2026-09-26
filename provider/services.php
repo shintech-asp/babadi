@@ -96,26 +96,88 @@ try {
     $db->exec("ALTER TABLE services ADD COLUMN IF NOT EXISTS deleted_at DATETIME DEFAULT NULL");
 } catch(Exception $e) {}
 
+// Field technicians eligible to be the default handler for a service:
+// any active employee flagged as 'field' staff type. No portal login
+// (provider_staff) is required — field technicians log in directly via
+// the employee self-service portal (see auth/login.php's employees tier).
+$fieldStaffOptions = [];
+try {
+    $fsStmt = $db->prepare(
+        "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name
+         FROM employees
+         WHERE provider_id = :pid AND status = 'active' AND staff_type = 'field'
+         ORDER BY first_name"
+    );
+    $fsStmt->bindParam(':pid', $provider_id, PDO::PARAM_INT);
+    $fsStmt->execute();
+    $fieldStaffOptions = $fsStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $ex) { /* employees table may not have matching rows yet */ }
+
+// Equipment a service can declare it needs (from the Finance inventory
+// register, provider-portal/inventory.php) — pre-fills the equipment picker
+// in this file's "Prepare Booking" flow. Consumables stay a per-booking pick
+// there since quantity used varies per job.
+$equipmentOptions = [];
+try {
+    $eqStmt = $db->prepare(
+        "SELECT id, item_name, unit_price FROM inventory_items WHERE provider_id = :pid AND item_type = 'equipment' AND is_archived = 0 ORDER BY item_name"
+    );
+    $eqStmt->bindParam(':pid', $provider_id, PDO::PARAM_INT);
+    $eqStmt->execute();
+    $equipmentOptions = $eqStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $ex) { /* inventory_items may not have matching rows yet */ }
+
+// Real category picker sourced from service_categories — replaces the old
+// hardcoded 5-option free-text <select> (see CLAUDE.md's "Pricing Model"
+// Recent Work Log entry: category was collected and validated but never
+// actually written to the DB before that fix; this now writes category_id).
+$serviceCategoryOptions = [];
+try {
+    $scStmt = $db->query('SELECT id, name FROM service_categories ORDER BY name');
+    $serviceCategoryOptions = $scStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $ex) { /* service_categories always exists, defensive only */ }
+$validCategoryIds = array_map('intval', array_column($serviceCategoryOptions, 'id'));
+
 $add_success = '';
 $add_error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_service'])) {
     $service_name      = trim($_POST['service_name'] ?? '');
     $description       = trim($_POST['description'] ?? '');
     $price             = trim($_POST['price'] ?? '');
-    $category          = trim($_POST['category'] ?? '');
+    $category_id       = (int)($_POST['category_id'] ?? 0);
     $pricing_type      = trim($_POST['pricing_type'] ?? '');
     $status            = trim($_POST['status'] ?? 'active');
     $eco_friendly      = isset($_POST['eco_friendly']) ? 1 : 0;
     $emergency         = isset($_POST['emergency']) ? 1 : 0;
+    if (!in_array($pricing_type, ['fixed', 'custom'], true)) {
+        $pricing_type = 'fixed';
+    }
+    // Custom Quote can't be charged upfront — force inspection on
+    // regardless of what the checkbox posted, so the client-side lock
+    // (onPricingTypeChange() in the page's JS) can't be bypassed.
+    $requires_inspection = ($pricing_type !== 'fixed') ? 1 : (isset($_POST['requires_inspection']) ? 1 : 0);
     $pesticide_name    = trim($_POST['pesticide_name'] ?? '');
     $pesticide_brand   = trim($_POST['pesticide_brand'] ?? '');
     $pesticide_type    = trim($_POST['pesticide_type'] ?? '');
     $pesticide_notes   = trim($_POST['pesticide_notes'] ?? '');
+    $assigned_staff_id = (int)($_POST['assigned_staff_id'] ?? 0);
+    // Never trust the posted staff id directly — only accept it if it's
+    // actually one of this provider's eligible field technicians.
+    if ($assigned_staff_id > 0 && !in_array($assigned_staff_id, array_map('intval', array_column($fieldStaffOptions, 'id')), true)) {
+        $assigned_staff_id = 0;
+    }
+    // Equipment this service uses — never trust posted ids directly, only
+    // accept ones that are actually in this provider's equipment inventory.
+    $validEquipmentIds = array_map('intval', array_column($equipmentOptions, 'id'));
+    $selectedEquipmentIds = array_values(array_intersect(
+        array_map('intval', $_POST['equipment_ids'] ?? []),
+        $validEquipmentIds
+    ));
 
     $errors = [];
     if ($service_name === '')                               { $errors[] = 'Service name is required.'; }
     if ($price === '' || !is_numeric($price) || $price < 0) { $errors[] = 'Valid price is required.'; }
-    if ($category === '')                                   { $errors[] = 'Category is required.'; }
+    if ($category_id <= 0 || !in_array($category_id, $validCategoryIds, true)) { $errors[] = 'Category is required.'; }
 
     // Contract / signature
     $contract_text      = trim($_POST['contract_text'] ?? '');
@@ -125,18 +187,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_service'])) {
 
     if (empty($errors)) {
         try {
-            $stmtIns = $db->prepare("INSERT INTO services (provider_id, service_name, description, price, pesticide_name, pesticide_brand, pesticide_type, pesticide_notes, contract_text, contract_signature, contract_signed_at, created_at) VALUES (:provider_id, :service_name, :description, :price, :pesticide_name, :pesticide_brand, :pesticide_type, :pesticide_notes, :contract_text, :contract_signature, NOW(), NOW())");
+            $stmtIns = $db->prepare("INSERT INTO services (provider_id, service_name, description, price, category_id, pricing_type, requires_inspection, pesticide_name, pesticide_brand, pesticide_type, pesticide_notes, contract_text, contract_signature, contract_signed_at, assigned_staff_id, created_at) VALUES (:provider_id, :service_name, :description, :price, :category_id, :pricing_type, :requires_inspection, :pesticide_name, :pesticide_brand, :pesticide_type, :pesticide_notes, :contract_text, :contract_signature, NOW(), :assigned_staff_id, NOW())");
             $stmtIns->bindParam(':provider_id',         $provider_id, PDO::PARAM_INT);
             $stmtIns->bindParam(':service_name',        $service_name);
             $stmtIns->bindParam(':description',         $description);
             $stmtIns->bindParam(':price',               $price);
+            $stmtIns->bindParam(':category_id',         $category_id, PDO::PARAM_INT);
+            $stmtIns->bindParam(':pricing_type',        $pricing_type);
+            $stmtIns->bindParam(':requires_inspection', $requires_inspection, PDO::PARAM_INT);
             $stmtIns->bindParam(':pesticide_name',      $pesticide_name);
             $stmtIns->bindParam(':pesticide_brand',     $pesticide_brand);
             $stmtIns->bindParam(':pesticide_type',      $pesticide_type);
             $stmtIns->bindParam(':pesticide_notes',     $pesticide_notes);
             $stmtIns->bindParam(':contract_text',       $contract_text);
             $stmtIns->bindParam(':contract_signature',  $contract_signature);
+            if ($assigned_staff_id > 0) {
+                $stmtIns->bindParam(':assigned_staff_id', $assigned_staff_id, PDO::PARAM_INT);
+            } else {
+                $stmtIns->bindValue(':assigned_staff_id', null, PDO::PARAM_NULL);
+            }
             $stmtIns->execute();
+            $newServiceId = (int)$db->lastInsertId();
+            if ($newServiceId > 0 && !empty($selectedEquipmentIds)) {
+                $eqLinkStmt = $db->prepare("INSERT IGNORE INTO service_equipment_items (service_id, inventory_item_id, quantity_needed) VALUES (:sid, :iid, :qty)");
+                foreach ($selectedEquipmentIds as $eqId) {
+                    $qty = max(1, (int)($_POST['equipment_qty'][$eqId] ?? 1));
+                    $eqLinkStmt->execute([':sid' => $newServiceId, ':iid' => $eqId, ':qty' => $qty]);
+                }
+            }
             $add_success = 'Service added successfully! Contract signed and saved.';
         } catch (PDOException $ex) {
             $add_error = 'Failed to add service. Please try again.';
@@ -171,35 +249,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_service'])) {
     $e_name            = trim($_POST['edit_service_name'] ?? '');
     $e_desc            = trim($_POST['edit_description'] ?? '');
     $e_price           = trim($_POST['edit_price'] ?? '');
-    $e_category        = trim($_POST['edit_category'] ?? '');
+    $e_category_id     = (int)($_POST['edit_category_id'] ?? 0);
+    $e_pricing_type    = trim($_POST['edit_pricing_type'] ?? '');
     $e_status          = trim($_POST['edit_status'] ?? 'active');
     $e_pest_name       = trim($_POST['edit_pesticide_name'] ?? '');
     $e_pest_brand      = trim($_POST['edit_pesticide_brand'] ?? '');
     $e_pest_type       = trim($_POST['edit_pesticide_type'] ?? '');
     $e_pest_notes      = trim($_POST['edit_pesticide_notes'] ?? '');
+    if (!in_array($e_pricing_type, ['fixed', 'custom'], true)) {
+        $e_pricing_type = 'fixed';
+    }
+    // Custom Quote can't be charged upfront — force inspection on
+    // regardless of what the checkbox posted, same rule as add_service.
+    $e_requires_inspection = ($e_pricing_type !== 'fixed') ? 1 : (isset($_POST['edit_requires_inspection']) ? 1 : 0);
+    $e_assigned_staff_id = (int)($_POST['edit_assigned_staff_id'] ?? 0);
+    if ($e_assigned_staff_id > 0 && !in_array($e_assigned_staff_id, array_map('intval', array_column($fieldStaffOptions, 'id')), true)) {
+        $e_assigned_staff_id = 0;
+    }
+    $e_validEquipmentIds = array_map('intval', array_column($equipmentOptions, 'id'));
+    $e_selectedEquipmentIds = array_values(array_intersect(
+        array_map('intval', $_POST['edit_equipment_ids'] ?? []),
+        $e_validEquipmentIds
+    ));
 
     $e_errors = [];
     if ($e_name === '')                                { $e_errors[] = 'Service name is required.'; }
     if ($e_price === '' || !is_numeric($e_price) || $e_price < 0) { $e_errors[] = 'Valid price is required.'; }
+    if ($e_category_id <= 0 || !in_array($e_category_id, $validCategoryIds, true)) { $e_errors[] = 'Category is required.'; }
     if ($edit_id <= 0)                                 { $e_errors[] = 'Invalid service.'; }
 
     if (empty($e_errors)) {
+        // Ownership check first — rowCount() on the UPDATE below isn't a
+        // reliable "found" signal (PDO/MySQL only counts rows whose values
+        // actually changed, so an equipment-only edit with identical other
+        // fields would report 0 even for a legitimate service), and without
+        // this check the equipment DELETE below would run unconditionally
+        // regardless of whether edit_id even belongs to this provider.
+        $ownerCheckStmt = $db->prepare("SELECT id FROM services WHERE id=:id AND provider_id=:pid");
+        $ownerCheckStmt->execute([':id' => $edit_id, ':pid' => $provider_id]);
+        $ownsService = (bool)$ownerCheckStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$ownsService) {
+            $edit_error = 'Service not found.';
+        } else {
         try {
-            $stmtEdit = $db->prepare("UPDATE services SET service_name=:name, description=:desc, price=:price, pesticide_name=:pname, pesticide_brand=:pbrand, pesticide_type=:ptype, pesticide_notes=:pnotes, updated_at=NOW() WHERE id=:id AND provider_id=:pid");
+            $stmtEdit = $db->prepare("UPDATE services SET service_name=:name, description=:desc, price=:price, category_id=:category_id, pricing_type=:pricing_type, requires_inspection=:requires_inspection, pesticide_name=:pname, pesticide_brand=:pbrand, pesticide_type=:ptype, pesticide_notes=:pnotes, assigned_staff_id=:assigned_staff_id, updated_at=NOW() WHERE id=:id AND provider_id=:pid");
             $stmtEdit->bindParam(':name',   $e_name);
             $stmtEdit->bindParam(':desc',   $e_desc);
             $stmtEdit->bindParam(':price',  $e_price);
+            $stmtEdit->bindParam(':category_id', $e_category_id, PDO::PARAM_INT);
+            $stmtEdit->bindParam(':pricing_type', $e_pricing_type);
+            $stmtEdit->bindParam(':requires_inspection', $e_requires_inspection, PDO::PARAM_INT);
             $stmtEdit->bindParam(':pname',  $e_pest_name);
             $stmtEdit->bindParam(':pbrand', $e_pest_brand);
             $stmtEdit->bindParam(':ptype',  $e_pest_type);
             $stmtEdit->bindParam(':pnotes', $e_pest_notes);
+            if ($e_assigned_staff_id > 0) {
+                $stmtEdit->bindParam(':assigned_staff_id', $e_assigned_staff_id, PDO::PARAM_INT);
+            } else {
+                $stmtEdit->bindValue(':assigned_staff_id', null, PDO::PARAM_NULL);
+            }
             $stmtEdit->bindParam(':id',     $edit_id,    PDO::PARAM_INT);
             $stmtEdit->bindParam(':pid',    $provider_id, PDO::PARAM_INT);
             $stmtEdit->execute();
-            if ($stmtEdit->rowCount() > 0) { $edit_success = 'Service updated successfully!'; }
-            else { $edit_error = 'No changes saved or service not found.'; }
+
+            // Re-sync the equipment list regardless of whether other fields
+            // changed, so "just update equipment" still saves.
+            $db->prepare("DELETE FROM service_equipment_items WHERE service_id = :sid")->execute([':sid' => $edit_id]);
+            if (!empty($e_selectedEquipmentIds)) {
+                $eqLinkStmt = $db->prepare("INSERT IGNORE INTO service_equipment_items (service_id, inventory_item_id, quantity_needed) VALUES (:sid, :iid, :qty)");
+                foreach ($e_selectedEquipmentIds as $eqId) {
+                    $qty = max(1, (int)($_POST['edit_equipment_qty'][$eqId] ?? 1));
+                    $eqLinkStmt->execute([':sid' => $edit_id, ':iid' => $eqId, ':qty' => $qty]);
+                }
+            }
+
+            $edit_success = 'Service updated successfully!';
         } catch (PDOException $ex) {
             $edit_error = 'Failed to update service. Please try again.';
+        }
         }
     } else {
         $edit_error = implode(' ', $e_errors);
@@ -288,8 +416,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_payment'])) {
 }
 
 $providerUserIdForServiceLock = (int)($provider['user_id'] ?? 0);
-$stmt = $db->prepare('SELECT id, service_name, description, price, duration, status, created_at, payment_settings, pesticide_name, pesticide_brand, pesticide_type, pesticide_notes, contract_text, contract_signature, contract_signed_at
-    FROM services WHERE provider_id = :pid AND deleted_at IS NULL ORDER BY created_at DESC');
+$stmt = $db->prepare('SELECT s.id, s.service_name, s.description, s.price, s.category_id, sc.name AS category_name, s.pricing_type, s.requires_inspection, s.duration, s.status, s.created_at, s.payment_settings, s.pesticide_name, s.pesticide_brand, s.pesticide_type, s.pesticide_notes, s.contract_text, s.contract_signature, s.contract_signed_at, s.assigned_staff_id
+    FROM services s LEFT JOIN service_categories sc ON sc.id = s.category_id
+    WHERE s.provider_id = :pid AND s.deleted_at IS NULL ORDER BY s.created_at DESC');
 $stmt->bindParam(':pid', $provider_id, PDO::PARAM_INT);
 $stmt->execute();
 $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -301,6 +430,16 @@ $services = array_map(function(array $service) use ($db, $provider_id, $provider
         (int)($service['id'] ?? 0),
         (string)($service['service_name'] ?? '')
     );
+    try {
+        $eqIdsStmt = $db->prepare("SELECT inventory_item_id, quantity_needed FROM service_equipment_items WHERE service_id = :sid");
+        $eqIdsStmt->execute([':sid' => (int)($service['id'] ?? 0)]);
+        $eqRows = $eqIdsStmt->fetchAll(PDO::FETCH_ASSOC);
+        $service['equipment_ids'] = array_map(fn($r) => (int)$r['inventory_item_id'], $eqRows);
+        $service['equipment_qty'] = array_combine(
+            array_map(fn($r) => (int)$r['inventory_item_id'], $eqRows),
+            array_map(fn($r) => (int)$r['quantity_needed'], $eqRows)
+        );
+    } catch (Exception $e) { $service['equipment_ids'] = []; $service['equipment_qty'] = []; }
     return $service;
 }, $services);
 $show_first_time_guide = count($services) === 0;
@@ -831,8 +970,15 @@ $show_first_time_guide = count($services) === 0;
         </ul>
         <div class="sidebar-footer">
             <div class="user-profile">
-                <?php $provider_avatar = trim((string)($provider['profile_image'] ?? '')); ?>
-                <?php if ($provider_avatar === '') { $provider_avatar = trim((string)($provider['logo_url'] ?? '')); } ?>
+                <?php
+                // profile_image is a bare app-root-relative path — must be resolved
+                // to an absolute URL before rendering here (this file lives one
+                // directory below the app root). logo_url is already a full external
+                // URL a provider pastes in, so it's left untouched.
+                $provider_avatar = trim((string)($provider['profile_image'] ?? ''));
+                if ($provider_avatar !== '') { $provider_avatar = siteUrl($provider_avatar); }
+                if ($provider_avatar === '') { $provider_avatar = trim((string)($provider['logo_url'] ?? '')); }
+                ?>
                 <div class="user-avatar <?php echo $provider_avatar !== '' ? 'has-photo' : ''; ?>">
                     <?php if ($provider_avatar !== ''): ?>
                         <img src="<?php echo htmlspecialchars($provider_avatar); ?>" alt="Profile Photo" class="user-avatar-img">
@@ -941,6 +1087,11 @@ $show_first_time_guide = count($services) === 0;
                             <td style="color:var(--text-muted); font-size:13px;"><?php echo (int)$s['id']; ?></td>
                             <td>
                                 <div class="service-name"><?php echo htmlspecialchars($s['service_name']); ?></div>
+                                <?php if (!empty($s['requires_inspection'])): ?>
+                                    <span class="pesticide-badge" style="background:#e8daef;color:#4a235a;">
+                                        <i class="fas fa-magnifying-glass"></i> Requires Inspection
+                                    </span>
+                                <?php endif; ?>
                                 <div class="service-desc"><?php echo htmlspecialchars(mb_strimwidth($s['description'] ?? '', 0, 70, '...')); ?></div>
                             </td>
                             <td>
@@ -963,7 +1114,10 @@ $show_first_time_guide = count($services) === 0;
                                 <?php endif; ?>
                             </td>
                             <td class="date-text"><?php echo htmlspecialchars($s['duration'] ?? '�'); ?></td>
-                            <td><span class="price-badge">&#8369;<?php echo number_format((float)$s['price'], 2); ?></span></td>
+                            <td>
+                                <span class="price-badge">&#8369;<?php echo number_format((float)$s['price'], 2); ?></span>
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;"><?php echo htmlspecialchars(ucfirst($s['pricing_type'] ?? 'fixed')); ?><?php echo ($s['pricing_type'] ?? 'fixed') !== 'fixed' ? ' (estimate)' : ''; ?></div>
+                            </td>
                             <td class="date-text"><?php echo date('M d, Y', strtotime($s['created_at'])); ?></td>
                             <?php $pay_settings = json_decode($s['payment_settings'] ?? '{}', true) ?? []; ?>
                             <td>
@@ -993,6 +1147,12 @@ $show_first_time_guide = count($services) === 0;
                                         data-pest-brand="<?php echo htmlspecialchars($s['pesticide_brand'] ?? '', ENT_QUOTES); ?>"
                                         data-pest-type="<?php echo htmlspecialchars($s['pesticide_type'] ?? '', ENT_QUOTES); ?>"
                                         data-pest-notes="<?php echo htmlspecialchars($s['pesticide_notes'] ?? '', ENT_QUOTES); ?>"
+                                        data-assigned-staff-id="<?php echo (int)($s['assigned_staff_id'] ?? 0); ?>"
+                                        data-requires-inspection="<?php echo (int)($s['requires_inspection'] ?? 0); ?>"
+                                        data-category-id="<?php echo (int)($s['category_id'] ?? 0); ?>"
+                                        data-pricing-type="<?php echo htmlspecialchars($s['pricing_type'] ?? 'fixed', ENT_QUOTES); ?>"
+                                        data-equipment-ids="<?php echo htmlspecialchars(json_encode($s['equipment_ids'] ?? []), ENT_QUOTES); ?>"
+                                        data-equipment-qty="<?php echo htmlspecialchars(json_encode($s['equipment_qty'] ?? []), ENT_QUOTES); ?>"
                                         data-pay-type="<?php echo htmlspecialchars($pay_settings['type'] ?? 'full', ENT_QUOTES); ?>"
                                         data-dp-mode="<?php echo htmlspecialchars($pay_settings['dp_mode'] ?? 'percent', ENT_QUOTES); ?>"
                                         data-dp-percent="<?php echo (float)($pay_settings['dp_percent'] ?? 50); ?>"
@@ -1154,6 +1314,15 @@ $show_first_time_guide = count($services) === 0;
             <div class="step-pill" id="pill-3"><span class="step-num">3</span> Final Preview</div>
         </div>
 
+        <!-- Shown only when a draft from an earlier unfinished attempt exists —
+             never auto-restored, so nothing fills in without the user choosing to. -->
+        <div id="draftRestoreBanner" style="display:none; margin:16px 26px 0; padding:12px 16px; background:#fef9c3; border:1px solid #fde68a; border-radius:10px; font-size:13px; color:#713f12; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <i class="fas fa-clock-rotate-left" style="font-size:15px;"></i>
+            <span style="flex:1; min-width:200px;">You have an unfinished service draft from earlier.</span>
+            <button type="button" class="btn btn-sm btn-primary" id="draftRestoreBtn">Restore Draft</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="draftDismissBtn">Start Blank</button>
+        </div>
+
         <div class="modal-body" style="padding-top:22px;">
 
             <!-- ══ STEP 1: Service Details ══ -->
@@ -1167,27 +1336,76 @@ $show_first_time_guide = count($services) === 0;
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Service Type *</label>
-                            <select name="category" id="add_category" class="form-control" required>
+                            <select name="category_id" id="add_category" class="form-control" required>
                                 <option value="">Select type</option>
-                                <option value="pest_control">Pest Control</option>
-                                <option value="termite">Termite Treatment</option>
-                                <option value="rodent">Rodent Control</option>
-                                <option value="mosquito">Mosquito Control</option>
-                                <option value="general">General Pest Management</option>
+                                <?php foreach ($serviceCategoryOptions as $sc): ?>
+                                <option value="<?php echo (int)$sc['id']; ?>"><?php echo htmlspecialchars($sc['name']); ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Pricing Model *</label>
-                            <select name="pricing_type" class="form-control" required>
+                            <select name="pricing_type" id="add_pricing_type" class="form-control" required onchange="onPricingTypeChange('add')">
                                 <option value="fixed">Fixed Price</option>
-                                <option value="hourly">Hourly Rate</option>
                                 <option value="custom">Custom Quote</option>
                             </select>
+                            <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                                Custom Quote can't be charged upfront — it requires an on-site inspection so the final price can be set afterward.
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Price (&#8369;) *</label>
+                        <label class="form-label" id="add_price_label">Price (&#8369;) *</label>
                         <input type="number" name="price" id="add_price" class="form-control" step="0.01" min="0" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+                            <input type="checkbox" name="requires_inspection" id="add_requires_inspection" value="1">
+                            Requires On-Site Inspection First
+                        </label>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="add_requires_inspection_hint">
+                            Seeker requests will collect only an Inspection Date and an estimated price. A field technician must submit an inspection report (photo, notes, and a final price) before the seeker agrees to a Working Date and payment is collected.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Assigned Field Technician</label>
+                        <select name="assigned_staff_id" id="add_assigned_staff_id" class="form-control">
+                            <option value="0">— Unassigned —</option>
+                            <?php foreach ($fieldStaffOptions as $fs): ?>
+                            <option value="<?php echo (int)$fs['id']; ?>"><?php echo htmlspecialchars($fs['full_name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            <?php if (empty($fieldStaffOptions)): ?>
+                                No field technicians yet — add one in the HR module and set their Staff Type to "Field Technician" (no promotion needed, they can log in right away).
+                            <?php else: ?>
+                                This staff member will be pre-filled to handle bookings for this service instead of the platform admin.
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Equipment Used</label>
+                        <?php if (empty($equipmentOptions)): ?>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);">
+                            No equipment in inventory yet — add some in Finance &gt; Inventory, then come back here to link it to this service.
+                        </div>
+                        <?php else: ?>
+                        <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;max-height:180px;overflow-y:auto;">
+                            <?php foreach ($equipmentOptions as $eq): ?>
+                            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;">
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:0;">
+                                    <input type="checkbox" class="add-equipment-checkbox" name="equipment_ids[]" value="<?php echo (int)$eq['id']; ?>" onchange="document.getElementById('add_eq_qty_<?php echo (int)$eq['id']; ?>').disabled = !this.checked;">
+                                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><?php echo htmlspecialchars($eq['item_name']); ?></span>
+                                    <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">(₱<?php echo number_format((float)$eq['unit_price'], 2); ?>)</span>
+                                </label>
+                                <input type="number" name="equipment_qty[<?php echo (int)$eq['id']; ?>]" id="add_eq_qty_<?php echo (int)$eq['id']; ?>" class="form-control" style="width:64px;flex-shrink:0;" min="1" value="1" disabled>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            Pre-fills the equipment picker (with this quantity) when preparing a booking for this service.
+                        </div>
+                        <?php endif; ?>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Description</label>
@@ -1412,13 +1630,76 @@ $show_first_time_guide = count($services) === 0;
                         <label class="form-label">Service Name *</label>
                         <input type="text" name="edit_service_name" id="edit_service_name" class="form-control" required maxlength="80">
                     </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Service Type *</label>
+                            <select name="edit_category_id" id="edit_category" class="form-control" required>
+                                <option value="">Select type</option>
+                                <?php foreach ($serviceCategoryOptions as $sc): ?>
+                                <option value="<?php echo (int)$sc['id']; ?>"><?php echo htmlspecialchars($sc['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Pricing Model *</label>
+                            <select name="edit_pricing_type" id="edit_pricing_type" class="form-control" required onchange="onPricingTypeChange('edit')">
+                                <option value="fixed">Fixed Price</option>
+                                <option value="custom">Custom Quote</option>
+                            </select>
+                            <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                                Custom Quote can't be charged upfront — it requires an on-site inspection so the final price can be set afterward.
+                            </div>
+                        </div>
+                    </div>
                     <div class="form-group">
-                        <label class="form-label">Price (&#8369;) *</label>
+                        <label class="form-label" id="edit_price_label">Price (&#8369;) *</label>
                         <input type="number" name="edit_price" id="edit_price" class="form-control" step="0.01" min="0" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Description</label>
                         <textarea name="edit_description" id="edit_description" class="form-control"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+                            <input type="checkbox" name="edit_requires_inspection" id="edit_requires_inspection" value="1">
+                            Requires On-Site Inspection First
+                        </label>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="edit_requires_inspection_hint">
+                            Seeker requests will collect only an Inspection Date and an estimated price. A field technician must submit an inspection report before the seeker agrees to a Working Date and payment is collected.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Assigned Field Technician</label>
+                        <select name="edit_assigned_staff_id" id="edit_assigned_staff_id" class="form-control">
+                            <option value="0">— Unassigned —</option>
+                            <?php foreach ($fieldStaffOptions as $fs): ?>
+                            <option value="<?php echo (int)$fs['id']; ?>"><?php echo htmlspecialchars($fs['full_name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            This staff member handles bookings for this service instead of the platform admin.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Equipment Used</label>
+                        <?php if (empty($equipmentOptions)): ?>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);">
+                            No equipment in inventory yet — add some in Finance &gt; Inventory.
+                        </div>
+                        <?php else: ?>
+                        <div id="editEquipmentList" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;max-height:180px;overflow-y:auto;">
+                            <?php foreach ($equipmentOptions as $eq): ?>
+                            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;">
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;min-width:0;">
+                                    <input type="checkbox" name="edit_equipment_ids[]" class="edit-equipment-checkbox" value="<?php echo (int)$eq['id']; ?>" onchange="document.getElementById('edit_eq_qty_<?php echo (int)$eq['id']; ?>').disabled = !this.checked;">
+                                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><?php echo htmlspecialchars($eq['item_name']); ?></span>
+                                    <span style="color:var(--text-muted);font-size:11px;flex-shrink:0;">(₱<?php echo number_format((float)$eq['unit_price'], 2); ?>)</span>
+                                </label>
+                                <input type="number" name="edit_equipment_qty[<?php echo (int)$eq['id']; ?>]" id="edit_eq_qty_<?php echo (int)$eq['id']; ?>" class="edit-equipment-qty form-control" style="width:64px;flex-shrink:0;" min="1" value="1" disabled data-item-id="<?php echo (int)$eq['id']; ?>">
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
                     </div>
 
                     <!-- ── Pesticide Section (Edit) ── -->
@@ -1509,7 +1790,10 @@ $show_first_time_guide = count($services) === 0;
 <script>
     const providerCompanyName = <?php echo json_encode((string)($provider['company_name'] ?? 'Provider')); ?>;
     const addServiceSubmitSucceeded = <?php echo json_encode(!empty($add_success)); ?>;
-    const ADD_SERVICE_DRAFT_KEY = 'pestify.add_service_draft.v1';
+    // Scoped to this provider's own user id — without this, a shared browser
+    // (a second provider logging in later on the same computer) would see
+    // and get offered the first provider's unfinished draft.
+    const ADD_SERVICE_DRAFT_KEY = 'pestify.add_service_draft.v1.' + <?php echo json_encode((string)$_SESSION['user_id']); ?>;
     const firstTimeGuide = document.getElementById('firstTimeGuide');
     const firstTimeGuideKey = firstTimeGuide ? String(firstTimeGuide.dataset.storageKey || '') : '';
 
@@ -1627,6 +1911,32 @@ $show_first_time_guide = count($services) === 0;
         if (match) match.classList.add('selected');
     }
 
+    // Custom Quote can't be charged upfront — it automatically
+    // requires an on-site inspection so the field technician can set the
+    // final price afterward (see CLAUDE.md's "Recent Work Log": pricing
+    // model was previously collected but never saved anywhere, and even if
+    // saved nothing downstream branched on it — this makes it functional).
+    const REQUIRES_INSPECTION_DEFAULT_HINT = 'Seeker requests will collect only an Inspection Date and an estimated price. A field technician must submit an inspection report (photo, notes, and a final price) before the seeker agrees to a Working Date and payment is collected.';
+    function onPricingTypeChange(prefix) {
+        const select = document.getElementById(prefix + '_pricing_type');
+        const checkbox = document.getElementById(prefix + '_requires_inspection');
+        const hint = document.getElementById(prefix + '_requires_inspection_hint');
+        const priceLabel = document.getElementById(prefix + '_price_label');
+        if (!select || !checkbox) return;
+        const isFixed = select.value === 'fixed';
+        if (!isFixed) {
+            checkbox.checked = true;
+            checkbox.disabled = true;
+            const modelLabel = select.options[select.selectedIndex]?.text || 'this pricing model';
+            if (hint) hint.innerHTML = '<strong>Required for ' + modelLabel + '.</strong> The price below is only an estimate — the field technician sets the final price after inspection, and the seeker agrees before anything is charged.';
+            if (priceLabel) priceLabel.textContent = 'Estimated Price (₱) *';
+        } else {
+            checkbox.disabled = false;
+            if (hint) hint.textContent = REQUIRES_INSPECTION_DEFAULT_HINT;
+            if (priceLabel) priceLabel.textContent = 'Price (₱) *';
+        }
+    }
+
     function resetAddServiceFormState() {
         if (addServiceForm) addServiceForm.reset();
         setFieldValue('#add-pesticide-type', '');
@@ -1682,13 +1992,13 @@ $show_first_time_guide = count($services) === 0;
     function openAdd() {
         addModal.classList.add('open');
         document.body.style.overflow = 'hidden';
-        const restoredStep = restoreAddServiceDraft();
-        if (restoredStep) {
-            goToStep(restoredStep);
-            return;
-        }
         resetAddServiceFormState();
         goToStep(1);
+        // Never auto-fills — only offers a Restore/Start Blank choice when a
+        // draft from an earlier unfinished attempt actually exists, so nothing
+        // fills in silently.
+        const draftBanner = document.getElementById('draftRestoreBanner');
+        if (draftBanner) draftBanner.style.display = readAddServiceDraft() ? 'flex' : 'none';
     }
     function closeAdd() {
         addModal.classList.remove('open');
@@ -1738,10 +2048,26 @@ $show_first_time_guide = count($services) === 0;
         });
     }
 
+    const draftRestoreBtn = document.getElementById('draftRestoreBtn');
+    const draftDismissBtn = document.getElementById('draftDismissBtn');
+    if (draftRestoreBtn) {
+        draftRestoreBtn.addEventListener('click', function () {
+            const restoredStep = restoreAddServiceDraft();
+            document.getElementById('draftRestoreBanner').style.display = 'none';
+            goToStep(restoredStep || 1);
+        });
+    }
+    if (draftDismissBtn) {
+        draftDismissBtn.addEventListener('click', function () {
+            clearAddServiceDraft();
+            document.getElementById('draftRestoreBanner').style.display = 'none';
+        });
+    }
+
+    // Draft restore is now only ever offered through the banner above, on
+    // manual "Add Service" click — the modal never opens itself on page load.
     if (addServiceSubmitSucceeded) {
         clearAddServiceDraft();
-    } else if (readAddServiceDraft()) {
-        openAdd();
     }
 
     function openStepConfirm(message, onProceed) {
@@ -2008,6 +2334,27 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
 
     function syncContractTextFromEditor() {
         document.getElementById('hidden_contract_text').value = getContractEditorText();
+        updateSignatureLock();
+    }
+
+    // Visually locks the signature canvas until contract text exists, so a
+    // provider can never reach "signed, but rejected because the contract
+    // is blank" — the default template is "Manual (Start Blank)", so this
+    // is the common path for anyone who scrolls straight to the signature
+    // box without noticing the empty editor above it.
+    function updateSignatureLock() {
+        const canvas = document.getElementById('signatureCanvas');
+        const placeholder = document.getElementById('sigPlaceholder');
+        if (!canvas) return;
+        const hasText = !!getContractEditorText();
+        canvas.style.pointerEvents = hasText ? 'auto' : 'none';
+        canvas.style.opacity = hasText ? '1' : '0.5';
+        canvas.style.cursor = hasText ? 'crosshair' : 'not-allowed';
+        if (placeholder && !hasSigned) {
+            placeholder.innerHTML = hasText
+                ? '<i class="fas fa-signature" style="margin-right:8px; font-size:22px;"></i> Sign here'
+                : '<i class="fas fa-lock" style="margin-right:8px; font-size:18px;"></i> Write your contract above first';
+        }
     }
 
     function buildContractDisplayHtml(contractText) {
@@ -2272,6 +2619,7 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
             document.getElementById('sigPlaceholder').style.display = 'flex';
             document.getElementById('sigStatus').innerHTML = '<i class="fas fa-pen" style="margin-right:6px;"></i> Not signed yet';
         }
+        updateSignatureLock();
     }
 
     function getTouchPos(e) {
@@ -2279,6 +2627,11 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
         return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
     }
     function startDraw(x, y) {
+        // Contract text is required before signing — checked here (not just
+        // via CSS) so drawing genuinely can't start, instead of letting the
+        // user sign first and only rejecting them afterward when they
+        // confirm the signature (which discards the stroke they just drew).
+        if (!getContractEditorText()) return;
         isDrawing = true;
         sigCtx.beginPath();
         sigCtx.moveTo(x, y);
@@ -2308,6 +2661,7 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
         document.getElementById('hidden_contract_signature').value = '';
         document.getElementById('sigPlaceholder').style.display = 'flex';
         document.getElementById('sigStatus').innerHTML = '<i class="fas fa-pen" style="margin-right:6px;"></i> Not signed yet';
+        updateSignatureLock();
         saveAddServiceDraft();
     }
 
@@ -2595,6 +2949,14 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
             const pestBrand = this.dataset.pestBrand || '';
             const pestType  = this.dataset.pestType  || '';
             const pestNotes = this.dataset.pestNotes || '';
+            const assignedStaffId = this.dataset.assignedStaffId || '0';
+            const requiresInspection = this.dataset.requiresInspection === '1';
+            const categoryId = this.dataset.categoryId || '';
+            const pricingType = this.dataset.pricingType || 'fixed';
+            let equipmentIds = [];
+            try { equipmentIds = JSON.parse(this.dataset.equipmentIds || '[]'); } catch (e) { equipmentIds = []; }
+            let equipmentQty = {};
+            try { equipmentQty = JSON.parse(this.dataset.equipmentQty || '{}'); } catch (e) { equipmentQty = {}; }
 
             // Edit fields
             document.getElementById('edit_id').value                = id;
@@ -2604,6 +2966,22 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
             document.getElementById('edit_pesticide_name').value    = pestName;
             document.getElementById('edit_pesticide_brand').value   = pestBrand;
             document.getElementById('edit_pesticide_notes').value   = pestNotes;
+            document.getElementById('edit_category').value = categoryId;
+            document.getElementById('edit_pricing_type').value = pricingType;
+            document.getElementById('edit_requires_inspection').checked = requiresInspection;
+            onPricingTypeChange('edit');
+            const editStaffSelect = document.getElementById('edit_assigned_staff_id');
+            if (editStaffSelect) editStaffSelect.value = assignedStaffId;
+            document.querySelectorAll('.edit-equipment-checkbox').forEach(function (cb) {
+                const itemId = parseInt(cb.value, 10);
+                const isChecked = equipmentIds.includes(itemId);
+                cb.checked = isChecked;
+                const qtyInput = document.getElementById('edit_eq_qty_' + itemId);
+                if (qtyInput) {
+                    qtyInput.disabled = !isChecked;
+                    qtyInput.value = equipmentQty[itemId] || 1;
+                }
+            });
 
             // Reset and pre-select pest type
             document.getElementById('edit-pest-type-grid').querySelectorAll('.pest-type-btn').forEach(b => b.classList.remove('selected'));

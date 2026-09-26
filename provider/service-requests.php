@@ -6,6 +6,9 @@ require_once 'config/config.php';
 require_once 'config/database.php';
 require_once appPath('includes/payment_receipt_helper.php');
 require_once appPath('includes/availed_booking_helper.php');
+require_once appPath('includes/booking_workflow_helper.php');
+require_once appPath('config/send_email.php');
+require_once appPath('includes/transaction_chat_helper.php');
 
 $loginUrl = appUrl('login.php');
 $providerSetupUrl = appUrl('provider-setup.php');
@@ -29,11 +32,6 @@ $is_local_test_mode = in_array($remoteAddr, ['127.0.0.1', '::1'], true)
 $test_service_day_booking_id = $is_local_test_mode
     ? max(0, (int)($_GET['test_service_day_booking'] ?? 0))
     : 0;
-$isRealTimestamp = static function ($value): bool {
-    $v = trim((string)$value);
-    return $v !== '' && $v !== '0000-00-00 00:00:00';
-};
-
 function getProviderSettingValue($db, int $providerId, string $key, string $default = ''): string {
     try {
         $stmt = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key = :k LIMIT 1");
@@ -45,17 +43,8 @@ function getProviderSettingValue($db, int $providerId, string $key, string $defa
     }
 }
 
-function normalizeWorkflowStatus(string $status): string
-{
-    $normalized = strtolower(trim($status));
-    if ($normalized === 'waiting_seeker_information' || $normalized === 'waiting_seeker_confirmation') {
-        return 'waiting_provider_confirmation';
-    }
-    if ($normalized === 'on_going') {
-        return 'ongoing';
-    }
-    return $normalized;
-}
+// normalizeWorkflowStatus() now lives in includes/booking_workflow_helper.php
+// (required above) so seeker-side pages can share the exact same bridge.
 
 function proposedTimeFitsProviderSchedule(PDO $db, int $providerId, string $date, string $time): bool
 {
@@ -125,6 +114,50 @@ if (!$provider_id) {
         exit();
     }
 }
+
+// Field technicians eligible to be assigned to a booking at the Preparing
+// step — any active employee flagged 'field'. No portal login (provider_staff)
+// required; they log in directly via the employee self-service portal.
+$fieldStaffOptions = [];
+try {
+    $fsStmt = $db->prepare(
+        "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name
+         FROM employees
+         WHERE provider_id = :pid AND status = 'active' AND staff_type = 'field'
+         ORDER BY first_name"
+    );
+    $fsStmt->execute([':pid' => $provider_id]);
+    $fieldStaffOptions = $fsStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) { /* employees table may not have matching rows yet */ }
+$fieldStaffIds = array_map('intval', array_column($fieldStaffOptions, 'id'));
+
+// Inventory available for the Preparing step's equipment/consumables picker.
+// Equipment isn't consumed — quantity_available is the total owned, so what's
+// actually free right now is that minus whatever's currently checked out on
+// other active bookings (getCheckedOutQuantity(), from booking_workflow_helper.php).
+// Consumables' quantity_available already IS the live remaining stock.
+$prepInventory = [];
+try {
+    $invStmt = $db->prepare(
+        "SELECT id, item_name, item_type, quantity_available, unit
+         FROM inventory_items WHERE provider_id = ? AND is_archived = 0 ORDER BY item_type, item_name"
+    );
+    $invStmt->execute([$provider_id]);
+    $prepInventory = $invStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) { /* inventory module may not be set up yet */ }
+foreach ($prepInventory as &$piRow) {
+    $piRow['available_now'] = $piRow['item_type'] === 'equipment'
+        ? max(0, (int)$piRow['quantity_available'] - getCheckedOutQuantity($db, (int)$piRow['id']))
+        : (int)$piRow['quantity_available'];
+}
+unset($piRow);
+// Not filtered to available_now > 0 — an item already fully checked out to
+// OTHER bookings must still appear (at 0) so the "Edit Equipment & Staff"
+// flow on a booking that's already Preparing can still find its row and
+// raise the ceiling by what that booking itself already holds (see
+// openPrepareBooking()'s isEdit branch below).
+$prepEquipment   = array_values(array_filter($prepInventory, fn($i) => $i['item_type'] === 'equipment'));
+$prepConsumables = array_values(array_filter($prepInventory, fn($i) => $i['item_type'] === 'consumable'));
 
 $sidebar_provider = [
     'company_name' => $_SESSION['company_name'] ?? ($_SESSION['first_name'] ?? 'Provider'),
@@ -252,15 +285,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_seeker_message_a
             exit;
         }
 
-        $msgInseet = $db->prepare(
-            "INSERT INTO messages (sender_id, receiver_id, message, is_read, created_at)
-             VALUES (:sender, :receiver, :message, 0, NOW())"
-        );
-        $msgInseet->execute([
-            ':sender' => $sendeeId,
-            ':receiver' => $seekerId,
-            ':message' => $body,
-        ]);
+        // Scoped to this booking (request_id) so it shows up in the same
+        // transaction-scoped thread as provider/messages-provider.php —
+        // also enforces the "closed once completed/cancelled" rule.
+        $sendResult = sendBookingMessage($db, $availId, $sendeeId, $seekerId, $body);
+        if (!$sendResult['ok']) {
+            echo json_encode($sendResult);
+            exit;
+        }
 
         $serviceTitle = trim((string)($bk['service_name'] ?? ''));
         $notifMessage = 'Message from your provider'
@@ -317,7 +349,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'scan_qr') {
         echo json_encode(['success' => false, 'message' => 'No token provided.']);
         exit;
     }
-    require_once appPath('includes/booking_workflow_helper.php');
     $result = scanQrAndStartService($db, $token, (int)$provider_id);
     echo json_encode($result);
     exit;
@@ -404,108 +435,21 @@ $ctrl_allow_anytime_test = false;
 
 if (isset($_POST['verify_control_number']) && isset($_POST['avail_id']) && isset($_POST['control_number_input'])) {
     $ctelAvailId = intval($_POST['avail_id']);
-    $ctelInput   = strtoupper(preg_replace('/\s+/', '', trim($_POST['control_number_input'])));
+    $ctelInput   = (string)$_POST['control_number_input'];
     $allowAnytimeTest = $is_local_test_mode && (($_POST['test_service_day_anytime'] ?? '0') === '1');
     $ctrl_allow_anytime_test = $allowAnytimeTest;
+    $ctelEarlyStart = (($_POST['early_start'] ?? '0') === '1');
 
-    try {
-        $ctelStmt = $db->prepare(
-            "SELECT preferred_date, control_number, provider_control_number, seeker_verified_at,
-                    provider_verified_at, dual_verified_at, full_name, status,
-                    seeker_user_id, service_name
-             FROM availed_services WHERE id = :id AND provider_id = :pid LIMIT 1"
-        );
-        $ctelStmt->execute([':id' => $ctelAvailId, ':pid' => $provider_id]);
-        $ctelRow = $ctelStmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$ctelRow) {
-            $ctrl_result = 'fail';
-            $ctrl_error  = 'Booking not found. Please refresh and try again.';
-
-        } elseif (
-            !$allowAnytimeTest
-            && !(($_POST['early_start'] ?? '0') === '1')
-            && (empty($ctelRow['preferred_date']) || $ctelRow['preferred_date'] > date('Y-m-d'))
-        ) {
-            $ctrl_result = 'fail';
-            $ctrl_error  = 'Verification is only available on or after the service day.';
-
-        } elseif (empty($ctelRow['control_number'])) {
-            // Codes not yet generated (booking just accepted) - generate now
-            $ctrl_result = 'fail';
-            $ctrl_error  = 'Control numbers have not been generated yet. Please accept the booking first.';
-
-        } elseif ($isRealTimestamp($ctelRow['dual_verified_at'] ?? null)) {
-            // Already fully verified
-            $ctrl_result = 'already_done';
-            $action_msg   = 'Both control numbers were already verified. Service is already in Starting status.';
-            $action_type  = 'starting';
-
-        } else {
-            // Validate seeker control number entered by provider
-            $expectedCtel = strtoupper(preg_replace('/\s+/', '', trim((string)$ctelRow['control_number'])));
-            $providerCodeOk = $expectedCtel !== '' && hash_equals($expectedCtel, $ctelInput);
-
-            if (!$providerCodeOk) {
-                $ctrl_result = 'fail';
-                $ctrl_error  = 'Invalid seeker control number. Please double-check the code on your dashboard.';
-            } else {
-                // Stamp provider_verified_at
-                $db->prepare(
-                    "UPDATE availed_services SET provider_verified_at = NOW(), updated_at = NOW()
-                     WHERE id = :id
-                       AND provider_id = :pid
-                       AND (provider_verified_at IS NULL OR provider_verified_at = '0000-00-00 00:00:00')"
-                )->execute([':id' => $ctelAvailId, ':pid' => $provider_id]);
-
-                // Re-fetch to get feeshest state
-                $ctelStmt->execute([':id' => $ctelAvailId, ':pid' => $provider_id]);
-                $ctelRow = $ctelStmt->fetch(PDO::FETCH_ASSOC);
-
-                $seekerDone   = $isRealTimestamp($ctelRow['seeker_verified_at'] ?? null);
-                $providerDone = $isRealTimestamp($ctelRow['provider_verified_at'] ?? null);
-
-                if ($seekerDone && $providerDone) {
-                    // âœ… BOTH verified - unlock service
-                    $db->prepare(
-                        "UPDATE availed_services
-                         SET status = 'starting', dual_verified_at = NOW(), updated_at = NOW()
-                         WHERE id = :id AND provider_id = :pid"
-                    )->execute([':id' => $ctelAvailId, ':pid' => $provider_id]);
-
-                    $ctrl_result  = 'ok';
-                    $action_msg   = 'Both control numbers verified. Service is now Starting.';
-                    $action_type  = 'starting';
-                    $action_label = 'Starting';
-
-                    // Notify seeker that service has started
-                    if (!empty($ctelRow['seeker_user_id'] ?? null)) {
-                        try {
-                            $db->prepare(
-                                "INSERT INTO seeker_notifications
-                                    (seeker_user_id, avail_id, provider_id, service_name, type, message, is_read)
-                                 VALUES (:suid, :avid, :pid, :sname, 'accepted', :msg, 0)"
-                            )->execute([
-                                ':suid'  => $ctelRow['seeker_user_id'],
-                                ':avid'  => $ctelAvailId,
-                                ':pid'   => $provider_id,
-                                ':sname' => $ctelRow['service_name'] ?? '',
-                                ':msg'   => 'Your service has officially started. Both control numbers were successfully verified.',
-                            ]);
-                        } catch(Exception $e) {}
-                    }
-                } else {
-                    // Provider done, waiting for seeker
-                    $ctrl_result = 'provider_done';
-                    $action_msg  = 'Seeker control number verified on provider side. Waiting for seeker verification.';
-                    $action_type = 'info';
-                }
-            }
-        }
-    } catch(Exception $e) {
-        $ctrl_result = 'fail';
-        $ctrl_error  = 'Verification failed: ' . $e->getMessage();
-    }
+    // Shared with provider-portal/my-services.php's field-tech self-service
+    // equivalent — see includes/booking_workflow_helper.php.
+    $ctelResult = verifyProviderSeekerCode($db, $ctelAvailId, $provider_id, $ctelInput, $allowAnytimeTest, $ctelEarlyStart);
+    $ctrl_result = $ctelResult['result'];
+    $ctrl_error  = $ctelResult['error'];
+    // NOTE: $action_msg/$action_type/$action_label get reset to '' by the
+    // "Handle Accept / Cancel action" block immediately below regardless of
+    // what's set here, so $ctelResult['message'/'action_type'/'action_label']
+    // is intentionally not assigned into them — only $ctrl_result/$ctrl_error
+    // actually reach the page's ctel-modal rendering further down.
 }
 
 // â”€â”€ Handle Accept / Cancel action â”€â”€
@@ -558,44 +502,21 @@ if (isset($_POST['accept_cancel_action']) && isset($_POST['avail_id'])) {
                     $action_type = 'error';
                 }
             } else {
-                $updateStmt = $db->prepare(
-                    "UPDATE availed_services
-                     SET status = 'cancelled', is_read = 1, updated_at = NOW()
-                     WHERE id = :id AND provider_id = :pid AND status = 'pending'"
+                $declined = declineAvailedBooking(
+                    $db,
+                    $avail_id,
+                    $provider_id,
+                    (int)($_SESSION['user_id'] ?? 0),
+                    'provider',
+                    $cancel_reason
                 );
-                $updateStmt->execute([':id' => $avail_id, ':pid' => $provider_id]);
 
-                if ($updateStmt->rowCount() > 0) {
-                    $reasonText = $cancel_reason !== '' ? ' Reason: ' . $cancel_reason : '';
-                    $notifMessage = 'Your service request for "' . ($avail_row['service_name'] ?? 'Service') . '" has been CANCELLED by the provider.' . $reasonText;
-
-                    if (!empty($avail_row['seeker_user_id'])) {
-                        notifySeekerForAvailedBooking(
-                            $db,
-                            (int)$avail_row['seeker_user_id'],
-                            $avail_id,
-                            $provider_id,
-                            (string)($avail_row['service_name'] ?? ''),
-                            'cancelled',
-                            $notifMessage
-                        );
-                    }
-
-                    appendAvailedStatusHistory(
-                        $db,
-                        $avail_id,
-                        'pending',
-                        'cancelled',
-                        (int)($_SESSION['user_id'] ?? 0),
-                        'provider',
-                        $cancel_reason !== '' ? 'Service request cancelled by provider. Reason: ' . $cancel_reason : 'Service request cancelled by provider.'
-                    );
-
+                if ($declined['ok']) {
                     $action_type = 'cancelled';
                     $action_label = 'Cancelled';
                     $action_msg = 'Service request cancelled. The seeker has been notified.';
                 } else {
-                    $action_msg = 'This request is no longer pending and cannot be updated.';
+                    $action_msg = $declined['error'] ?? 'This request is no longer pending and cannot be updated.';
                     $action_type = 'error';
                 }
             }
@@ -897,146 +818,68 @@ if (isset($_POST['accept_emergency_now']) && isset($_POST['avail_id'])) {
     }
 }
 
-// â”€â”€ Handle status update â”€â”€
+// ── Handle "Prepare Booking" (Accepted -> Preparing): staff + equipment/
+// consumables assignment, now done by the provider instead of the platform
+// admin (see admin/booking-preparing.php, superseded by this for providers
+// using the service-level staff assignment feature). ──
+if (isset($_POST['prepare_booking']) && isset($_POST['avail_id'])) {
+    $prepAvailId  = (int)$_POST['avail_id'];
+    $prepStaffId  = (int)($_POST['staff_id'] ?? 0);
+    $prepCompanionId = !empty($_POST['companion_id']) ? (int)$_POST['companion_id'] : null;
+    $prepEquip    = json_decode($_POST['equipment_json'] ?? '[]', true) ?: [];
+    $prepCons     = json_decode($_POST['consumables_json'] ?? '[]', true) ?: [];
+    $prepNotes    = trim($_POST['operations_notes'] ?? '');
+
+    // Shared with provider-portal/my-services.php's field-tech self-service
+    // equivalent — see includes/booking_workflow_helper.php. Also the entry
+    // point for re-editing an already-'preparing' booking's assignment, not
+    // just the one-shot accepted->preparing trigger.
+    $prepResult = prepareAvailedBooking(
+        $db, $provider_id, $prepAvailId, $prepStaffId, $fieldStaffIds,
+        $prepEquip, $prepCons, $prepNotes,
+        (int)($_SESSION['user_id'] ?? 0), 'provider', $prepCompanionId
+    );
+    $action_type = $prepResult['type'];
+    $action_msg  = $prepResult['message'];
+}
+
+// ── Handle "Submit Inspection Report" (Accepted/Revising -> Awaiting
+//    Agreement): a field technician who visited the site submits a photo,
+//    a description, a final price, and a proposed working date. The
+//    seeker then agrees (locking those in, re-entering the normal
+//    accepted -> preparing pipeline) or requests changes (-> 'revising',
+//    looping back here for a new report). See CLAUDE.md's "Recent Work
+//    Log" for the full design writeup. ──
+if (isset($_POST['submit_inspection_report']) && isset($_POST['avail_id'])) {
+    $inspAvailId = (int)$_POST['avail_id'];
+    $inspStaffId = (int)($_POST['staff_id'] ?? 0);
+    $inspNotes   = trim($_POST['inspection_notes'] ?? '');
+    $inspPrice   = (float)($_POST['proposed_price'] ?? 0);
+    $inspWorkingDate = trim($_POST['proposed_working_date'] ?? '');
+
+    // Shared with provider-portal/my-services.php's field-tech self-service
+    // equivalent — see includes/booking_workflow_helper.php.
+    $inspResult = submitProviderInspectionReport(
+        $db, $provider_id, $inspAvailId, $inspStaffId, $fieldStaffIds,
+        $inspNotes, $inspPrice, $inspWorkingDate,
+        (int)($_SESSION['user_id'] ?? 0), 'provider'
+    );
+    $action_type = $inspResult['type'];
+    $action_msg  = $inspResult['message'];
+}
+
+// ── Handle status update ──
 if (isset($_POST['update_status']) && isset($_POST['avail_id']) && isset($_POST['new_status'])) {
     $avail_id   = intval($_POST['avail_id']);
-    $new_status = in_array($_POST['new_status'], $valid_statuses) ? $_POST['new_status'] : '';
-    if ($new_status === 'waiting_seeker_information' || $new_status === 'waiting_seeker_confirmation') {
-        // Keep DB status backward-compatible while showing seeker-confirmation woeding in UI.
-        $new_status = 'waiting_provider_confirmation';
-    }
-    if ($avail_id && $new_status) {
-        try {
-            $bkStmt = $db->prepare(
-                "SELECT status, payment_method, payment_status,
-                        seeker_user_id, service_name, remaining_amount, provider_arrival_proof_photo
-                 FROM availed_services
-                 WHERE id = :id AND provider_id = :pid
-                 LIMIT 1"
-            );
-            $bkStmt->execute([':id' => $avail_id, ':pid' => $provider_id]);
-            $bk = $bkStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-            $old_status = strtolower(trim((string)($bk['status'] ?? '')));
-            if ($old_status === 'waiting_seeker_information' || $old_status === 'waiting_seeker_confirmation') {
-                $old_status = 'waiting_provider_confirmation';
-            }
-            $paymentMethod = strtolower(trim((string)($bk['payment_method'] ?? '')));
-            $paymentStatus = strtolower(trim((string)($bk['payment_status'] ?? '')));
-            // Remaining payment is required only while booking is still partial.
-            $requiresRemainingPayment = ($paymentStatus === 'partial');
-
-            // Fully-paid bookings should go straight to seeker confirmation stage.
-            if ($new_status === 'waiting_remaining_payment' && !$requiresRemainingPayment) {
-                $new_status = 'waiting_provider_confirmation';
-            }
-
-            // starting → ongoing is handled exclusively via QR scan, not the advance button.
-
-            // Completion is now finalized by seeker satisfaction confirmation on My Bookings.
-            if ($new_status === 'completed' && $old_status !== 'completed') {
-                $action_label = 'Awaiting Seeker Confirmation';
-                $action_msg = 'Provider cannot directly mark this as completed. Please wait for seeker confirmation.';
-                $action_type = 'error';
-                $new_status = '';
-            }
-
-            if ($new_status !== '') {
-                $historyTargetStatus = $new_status;
-                $sql = "UPDATE availed_services SET status = :status";
-                $params = [':status' => $new_status, ':id' => $avail_id, ':pid' => $provider_id];
-                if ($new_status === 'completed') {
-                    $sql .= ", payment_status = 'paid'";
-                }
-                $sql .= " WHERE id = :id AND provider_id = :pid";
-
-                $upStmt = $db->prepare($sql);
-                $upStmt->execute($params);
-                $action_type  = $new_status;
-                $status_labels = [
-                    'pending'                       => 'Pending',
-                    'accepted'                      => 'Accepted',
-                    'preparing'                     => 'Preparing',
-                    'starting'                      => 'Starting',
-                    'ongoing'                       => 'Ongoing',
-                    'waiting_remaining_payment'     => 'Waiting for Remaining Payment',
-                    'waiting_seeker_information'    => 'Waiting Seeker Confirmation',
-                    'waiting_provider_confirmation' => 'Waiting Seeker Confirmation',
-                    'completed'                     => 'Complete',
-                    'cancelled'                     => 'Cancelled',
-                ];
-                $action_label = $status_labels[$new_status] ?? ucfirst($new_status);
-                $action_msg   = 'Service status updated to: ' . $action_label;
-
-                appendAvailedStatusHistory(
-                    $db,
-                    $avail_id,
-                    $old_status,
-                    $historyTargetStatus,
-                    (int)($_SESSION['user_id'] ?? 0),
-                    'provider',
-                    'Provider updated booking status to ' . $action_label . '.'
-                );
-            }
-
-            // Notify seeker when booking enters waiting_remaining_payment.
-            if (
-                $new_status === 'waiting_remaining_payment'
-                && $old_status !== 'waiting_remaining_payment'
-                && !empty($bk['seeker_user_id'])
-            ) {
-                try {
-                    $remainingAmount = (float)($bk['remaining_amount'] ?? 0);
-                    $remainingText = $remainingAmount > 0
-                        ? 'Please pay the remaining balance of PHP ' . number_format($remainingAmount, 2) . ' to continue.'
-                        : 'Please pay the remaining balance to continue.';
-                    $notifMessage =
-                        'Your booking for "' . ($bk['service_name'] ?? 'Service') . '" is now waiting for remaining payment. '
-                        . $remainingText;
-
-                    $db->prepare(
-                        "INSERT INTO seeker_notifications
-                            (seeker_user_id, avail_id, provider_id, service_name, type, message, is_read)
-                         VALUES (:suid, :avid, :pid, :sname, 'accepted', :msg, 0)"
-                    )->execute([
-                        ':suid'  => (int)$bk['seeker_user_id'],
-                        ':avid'  => $avail_id,
-                        ':pid'   => $provider_id,
-                        ':sname' => $bk['service_name'] ?? '',
-                        ':msg'   => $notifMessage,
-                    ]);
-                } catch (Exception $e) {}
-            }
-
-            // Ask seeker to confirm satisfaction before final completion.
-            if (
-                $new_status === 'waiting_provider_confirmation'
-                && $old_status !== 'waiting_provider_confirmation'
-                && !empty($bk['seeker_user_id'])
-            ) {
-                try {
-                    $notifMessage =
-                        'Your provider marked "' . ($bk['service_name'] ?? 'Service') . '" as done. '
-                        . 'Please confirm in My Bookings if the service is satisfactory so the booking can be completed.';
-
-                    $db->prepare(
-                        "INSERT INTO seeker_notifications
-                            (seeker_user_id, avail_id, provider_id, service_name, type, message, is_read)
-                         VALUES (:suid, :avid, :pid, :sname, 'accepted', :msg, 0)"
-                    )->execute([
-                        ':suid'  => (int)$bk['seeker_user_id'],
-                        ':avid'  => $avail_id,
-                        ':pid'   => $provider_id,
-                        ':sname' => $bk['service_name'] ?? '',
-                        ':msg'   => $notifMessage,
-                    ]);
-                } catch (Exception $e) {}
-            }
-        } catch(Exception $e) {
-            $action_msg  = 'Failed to update status.';
-            $action_type = 'error';
-        }
-    }
+    // Shared with provider-portal/my-services.php's field-tech self-service
+    // equivalent — see includes/booking_workflow_helper.php.
+    $advResult = advanceAvailedServiceStatus(
+        $db, $provider_id, $avail_id, (string)$_POST['new_status'],
+        (int)($_SESSION['user_id'] ?? 0), 'provider', 'Provider'
+    );
+    $action_type  = $advResult['type'];
+    $action_label = $advResult['label'];
+    $action_msg   = $advResult['message'];
 }
 
 // -- Archive completed/cancelled request --
@@ -1131,7 +974,23 @@ try {
                     WHERE pt.availed_service_id = availed_services.id
                     ORDER BY COALESCE(pt.updated_at, pt.created_at) DESC, pt.id DESC
                     LIMIT 1
-                ), '') AS payment_record_at
+                ), '') AS payment_record_at,
+                COALESCE((
+                    SELECT sv.assigned_staff_id FROM services sv WHERE sv.id = availed_services.service_id
+                ), 0) AS service_assigned_staff_id,
+                COALESCE((
+                    SELECT CONCAT(e.first_name, ' ', e.last_name)
+                    FROM services sv JOIN employees e ON e.id = sv.assigned_staff_id
+                    WHERE sv.id = availed_services.service_id
+                ), '') AS service_assigned_staff_name,
+                COALESCE((
+                    SELECT GROUP_CONCAT(CONCAT(sei.inventory_item_id, ':', sei.quantity_needed))
+                    FROM service_equipment_items sei
+                    WHERE sei.service_id = availed_services.service_id
+                ), '') AS service_equipment_ids,
+                COALESCE((
+                    SELECT sv.requires_inspection FROM services sv WHERE sv.id = availed_services.service_id
+                ), 0) AS service_requires_inspection
          FROM availed_services
          WHERE provider_id = :pid
            AND COALESCE(is_archived, 0) = 0
@@ -1247,23 +1106,10 @@ try {
 } catch(Exception $e) {}
 
 // â”€â”€ Status label & color helper â”€â”€
-function statusInfo($status) {
-    $map = [
-        'pending'                       => ['label'=>'Pending',                        'color'=>'#856404','bg'=>'#fff3cd'],
-        'accepted'                      => ['label'=>'Accepted',                       'color'=>'#0a6640','bg'=>'#c0f5d8'],
-        'preparing'                     => ['label'=>'Preparing',                      'color'=>'#0c5460','bg'=>'#d1ecf1'],
-        'starting'                      => ['label'=>'Starting',                       'color'=>'#1b4f72','bg'=>'#d6eaf8'],
-        'ongoing'                       => ['label'=>'Ongoing',                        'color'=>'#155724','bg'=>'#c3e6cb'],
-        'on_going'                      => ['label'=>'Ongoing',                        'color'=>'#155724','bg'=>'#c3e6cb'],
-        'waiting_remaining_payment'     => ['label'=>'Waiting for Remaining Payment',  'color'=>'#7d3200','bg'=>'#fde8d8'],
-        'waiting_seeker_information'    => ['label'=>'Waiting Seeker Confirmation',    'color'=>'#4a235a','bg'=>'#e8daef'],
-        'waiting_seeker_confirmation'   => ['label'=>'Waiting Seeker Confirmation',    'color'=>'#4a235a','bg'=>'#e8daef'],
-        'waiting_provider_confirmation' => ['label'=>'Waiting Seeker Confirmation',    'color'=>'#1a2d42','bg'=>'#d6eaf8'],
-        'completed'                     => ['label'=>'Completed',                      'color'=>'#155724','bg'=>'#d4edda'],
-        'cancelled'                     => ['label'=>'Cancelled',                      'color'=>'#721c24','bg'=>'#f8d7da'],
-    ];
-    return $map[$status] ?? ['label'=>ucfirst($status),'color'=>'#555','bg'=>'#err'];
-}
+// statusInfo() moved to includes/booking_workflow_helper.php so
+// provider-portal/my-services.php's own View Details modal (a read-only
+// mirror of this page's modal, for field techs) can share the exact same
+// label/color map instead of a second copy that could drift.
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -2735,6 +2581,10 @@ chdir(dirname(__DIR__));
                     </div>
                 </div>
 
+                <!-- Inspection (only for services requiring on-site inspection first) -->
+                <div class="vd-section-label" id="vdInspectionLabel" style="display:none;"><i class="fas fa-magnifying-glass"></i> Inspection &amp; Working Date</div>
+                <div class="vd-info-grid" id="vdInspectionSection" style="display:none;margin-bottom:16px;"></div>
+
                 <!-- Payment -->
                 <div class="vd-section-label" id="vdPaymentLabel"><i class="fas fa-receipt"></i> Payment</div>
                 <div class="vd-info-grid" id="vdPaymentSection" style="margin-bottom:16px;"></div>
@@ -2892,8 +2742,15 @@ chdir(dirname(__DIR__));
             </ul>
             <div class="sidebar-footer">
                 <div class="user-profile">
-                    <?php $provider_avatar = trim((string)($sidebar_provider['profile_image'] ?? '')); ?>
-                    <?php if ($provider_avatar === '') { $provider_avatar = trim((string)($sidebar_provider['logo_url'] ?? '')); } ?>
+                    <?php
+                    // profile_image is a bare app-root-relative path — must be resolved
+                    // to an absolute URL before rendering here (this file lives one
+                    // directory below the app root). logo_url is already a full external
+                    // URL a provider pastes in, so it's left untouched.
+                    $provider_avatar = trim((string)($sidebar_provider['profile_image'] ?? ''));
+                    if ($provider_avatar !== '') { $provider_avatar = siteUrl($provider_avatar); }
+                    if ($provider_avatar === '') { $provider_avatar = trim((string)($sidebar_provider['logo_url'] ?? '')); }
+                    ?>
                     <div class="user-avatar <?php echo $provider_avatar !== '' ? 'has-photo' : ''; ?>">
                         <?php if ($provider_avatar !== ''): ?>
                             <img src="<?php echo htmlspecialchars($provider_avatar); ?>" alt="Profile Photo" class="user-avatar-img">
@@ -3068,6 +2925,7 @@ chdir(dirname(__DIR__));
                                 ['key'=>'waiting_remaining_payment',     'label'=>'Waiting Payment',                'bg'=>'#fde8d8','color'=>'#7d3200'],
                                 ['key'=>'waiting_provider_confirmation', 'label'=>'Awaiting Seeker Confirmation',   'bg'=>'#d6eaf8','color'=>'#1a2d42'],
                             ];
+                            $isTerminalStatus = in_array($flowStatus, ['completed', 'cancelled'], true);
                             $currentIdx = array_search($flowStatus, array_column($allSteps, 'key'));
                             if ($currentIdx === false) $currentIdx = 0;
                             $nextIdx = ($currentIdx < count($allSteps) - 1) ? $currentIdx + 1 : null;
@@ -3083,10 +2941,43 @@ chdir(dirname(__DIR__));
                             if (($allSteps[$currentIdx]['key'] ?? '') === 'starting') $nextStep = null; // QR scan handles starting→ongoing
                             if ($isReschedulePending) $nextStep = null;
                             $currentStep = $allSteps[$currentIdx] ?? $allSteps[0];
+                            // 'completed'/'cancelled' aren't in $allSteps, so array_search above falls through
+                            // to index 0 ("Accepted") for them — without this override, a completed/cancelled
+                            // booking would show "Accepted" as its current step and "Preparing" as the next
+                            // actionable step, contradicting its own status badge and offering a bogus advance button.
+                            if ($isTerminalStatus) {
+                                $nextStep = null;
+                                $currentStep = $flowStatus === 'completed'
+                                    ? ['key' => 'completed', 'label' => 'Completed', 'bg' => '#c3e6cb', 'color' => '#155724']
+                                    : ['key' => 'cancelled', 'label' => 'Cancelled', 'bg' => '#e2e3e5', 'color' => '#41464b'];
+                            }
+
+                            // Inspection flow (opt-in per service, see CLAUDE.md's "Recent Work Log"):
+                            // 'awaiting_agreement'/'revising' also aren't in $allSteps, so without this
+                            // override they'd fall through to index 0 ("Accepted") the same way
+                            // completed/cancelled used to — offering a bogus "Prepare Booking" button
+                            // before the seeker has even agreed to a working date and final price.
+                            $requiresInspection = !empty($av['service_requires_inspection']);
+                            $inspectionAgreed = !empty($av['inspection_agreed_at']);
+                            $needsInspectionReport = $requiresInspection && !$inspectionAgreed
+                                && in_array($av['status'], ['accepted', 'revising'], true);
+                            $awaitingAgreement = ($av['status'] === 'awaiting_agreement');
+                            if ($needsInspectionReport || $awaitingAgreement) {
+                                $nextStep = null;
+                                $currentStep = $awaitingAgreement
+                                    ? ['key' => 'awaiting_agreement', 'label' => 'Awaiting Seeker Decision', 'bg' => '#e8daef', 'color' => '#4a235a']
+                                    : ['key' => 'revising', 'label' => $av['status'] === 'revising' ? 'Revising After Feedback' : 'Accepted', 'bg' => '#fde8d8', 'color' => '#7d3200'];
+                            }
 
                             $actionNoteText = '';
                             if ($isReschedulePending) {
                                 $actionNoteText = 'Waiting for the seeker to respond to your proposed reschedule.';
+                            } elseif ($needsInspectionReport) {
+                                $actionNoteText = $av['status'] === 'revising'
+                                    ? 'The seeker requested changes — submit a revised inspection report.'
+                                    : 'Submit an inspection report (photo, notes, and a final price) before this can move to Preparing.';
+                            } elseif ($awaitingAgreement) {
+                                $actionNoteText = 'Waiting for the seeker to agree to the proposed working date and price, or request changes.';
                             } elseif (($currentStep['key'] ?? '') === 'starting') {
                                 $actionNoteText = 'Scan the seeker\'s QR code to move this booking to Ongoing.';
                             } elseif (($currentStep['key'] ?? '') === 'waiting_provider_confirmation') {
@@ -3152,6 +3043,13 @@ chdir(dirname(__DIR__));
                                 'isTestServiceDay'       => (bool)$isStepTestServiceDay,
                                 'isDualVerified'         => (bool)$isStepDualVerified,
                                 'isVerifiable'           => (bool)$isVerifiable,
+                                // Same "paid or at least a downpayment" bar
+                                // verifyProviderSeekerCode() now enforces
+                                // server-side — gates both "Start Early" and
+                                // "Enter Seeker Code" in the footer below so
+                                // the buttons aren't shown only to be
+                                // rejected on click.
+                                'isPaidEnough'           => in_array($paymentStatus_, ['paid', 'partial'], true),
                                 'seekerVerifiedForCtel'  => (bool)$seekerVee,
                                 'currentStepKey'         => $currentStep['key'] ?? '',
                                 'currentStepLabel'       => $currentStep['label'] ?? '',
@@ -3166,6 +3064,46 @@ chdir(dirname(__DIR__));
                                 'prevStepColor'          => $prevStep ? $prevStep['color'] : null,
                                 'preferredDatetime'      => $av['preferred_date'] . ' ' . $av['preferred_time'],
                                 'todayDate'              => date('Y-m-d'),
+                                'assignedStaffId'        => (int)($av['service_assigned_staff_id'] ?? 0),
+                                'assignedStaffName'      => (string)($av['service_assigned_staff_name'] ?? ''),
+                                // This booking's OWN current assignment (as opposed to the
+                                // service's default-suggested staff/equipment above) — used
+                                // to prefill "Edit Equipment & Staff" on an already-Preparing
+                                // booking with what it actually has, not the service defaults.
+                                'isPreparing'                => ($av['status'] === 'preparing'),
+                                'bookingAssignedEmployeeId'  => (int)($av['assigned_employee_id'] ?? 0),
+                                'bookingCompanionEmployeeId' => (int)($av['companion_employee_id'] ?? 0),
+                                'operationsNotes'            => (string)($av['operations_notes'] ?? ''),
+                                'bookingAssignedEquipment'   => (function() use ($av) {
+                                    $decoded = json_decode((string)($av['assigned_equipment'] ?? ''), true);
+                                    return is_array($decoded) ? array_map(fn($i) => ['id' => (int)($i['inventory_item_id'] ?? 0), 'qty' => (int)($i['quantity_needed'] ?? 0)], $decoded) : [];
+                                })(),
+                                'bookingAssignedConsumables' => (function() use ($av) {
+                                    $decoded = json_decode((string)($av['assigned_consumables'] ?? ''), true);
+                                    return is_array($decoded) ? array_map(fn($i) => ['id' => (int)($i['inventory_item_id'] ?? 0), 'qty' => (int)($i['quantity_needed'] ?? 0)], $decoded) : [];
+                                })(),
+                                'serviceEquipment'       => (function() use ($av) {
+                                    $pairs = array_filter(explode(',', (string)($av['service_equipment_ids'] ?? '')));
+                                    $out = [];
+                                    foreach ($pairs as $pair) {
+                                        [$eqId, $eqQty] = array_pad(explode(':', $pair, 2), 2, 1);
+                                        $out[] = ['id' => (int)$eqId, 'qty' => max(1, (int)$eqQty)];
+                                    }
+                                    return $out;
+                                })(),
+                                'requiresInspection'          => (bool)$requiresInspection,
+                                'needsInspectionReport'       => (bool)$needsInspectionReport,
+                                'isRevising'                  => ($av['status'] === 'revising'),
+                                'awaitingAgreement'            => (bool)$awaitingAgreement,
+                                'inspectionAgreed'             => (bool)$inspectionAgreed,
+                                'inspectionDate'                => !empty($av['inspection_date']) ? date('F d, Y', strtotime((string)$av['inspection_date'])) : '',
+                                'workingDate'                   => !empty($av['working_date']) ? date('F d, Y', strtotime((string)$av['working_date'])) : '',
+                                'inspectionRound'               => (int)($av['inspection_round'] ?? 0),
+                                'inspectionReportImage'         => !empty($av['inspection_report_image']) ? siteUrl($av['inspection_report_image']) : '',
+                                'inspectionReportNotes'         => (string)($av['inspection_report_notes'] ?? ''),
+                                'inspectionProposedPrice'       => number_format((float)($av['inspection_proposed_price'] ?? 0), 2),
+                                'inspectionProposedWorkingDate' => !empty($av['inspection_proposed_working_date']) ? date('F d, Y', strtotime((string)$av['inspection_proposed_working_date'])) : '',
+                                'inspectionChangeNotes'         => (string)($av['inspection_change_notes'] ?? ''),
                             ];
                         ?>
                             <tr class="<?php echo implode(' ', $eowClasses); ?>" style="<?php echo !$av['is_read'] ? 'background:#f0f7ff;' : ''; ?>">
@@ -3191,12 +3129,12 @@ chdir(dirname(__DIR__));
                                             </span>
                                         <?php endif; ?>
                                         <?php if(!$av['is_read']): ?>
-                                            <span class="availed-badge-new">NEW</span>
+                                            <span class="availed-badge-new"><?php echo $av['status'] === 'pending' ? 'NEW' : 'UPDATED'; ?></span>
                                         <?php endif; ?>
                                     </div>
                                 </td>
                                 <td style="text-align:center;">
-                                    <button class="btn-view-details" onclick='openViewDetails(<?php echo json_encode($modalData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>
+                                    <button class="btn-view-details" data-avail-id="<?php echo (int)$av['id']; ?>" onclick='openViewDetails(<?php echo json_encode($modalData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>
                                         <i class="fas fa-eye"></i> View Details
                                     </button>
                                 </td>
@@ -3394,6 +3332,34 @@ chdir(dirname(__DIR__));
             } else { vdAddeess.textContent = '—'; }
             document.getElementById('vdMapLink').href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(rawAddress);
 
+            // ── Inspection section ──
+            const inspSection = document.getElementById('vdInspectionSection');
+            const inspLabel   = document.getElementById('vdInspectionLabel');
+            if (data.requiresInspection) {
+                let ih = '';
+                ih += `<div class="vd-info-card"><div class="vd-info-icon" style="background:#f5eef8;"><i class="fas fa-magnifying-glass" style="color:#4a235a;"></i></div><div><div class="vd-info-label">Inspection Date</div><div class="vd-info-value">${escapeHtml(data.inspectionDate || '-')}</div></div></div>`;
+                ih += `<div class="vd-info-card"><div class="vd-info-icon" style="background:#eaf6ee;"><i class="fas fa-calendar-check" style="color:#0a6640;"></i></div><div><div class="vd-info-label">Working Date</div><div class="vd-info-value">${escapeHtml(data.workingDate || 'Not yet agreed')}</div></div></div>`;
+                if (data.inspectionChangeNotes) {
+                    ih += `<div class="vd-info-card full-width" style="background:#fff7ed;border-color:#fdba74;"><div style="font-size:11px;font-weight:700;color:#9a3412;margin-bottom:4px;"><i class="fas fa-comment-dots"></i> Seeker requested changes</div><div style="font-size:12px;color:#7c2d12;">${escapeHtml(data.inspectionChangeNotes)}</div></div>`;
+                }
+                if (data.inspectionReportImage || data.inspectionReportNotes) {
+                    ih += `<div class="vd-info-card full-width" style="flex-direction:column;gap:8px;align-items:flex-start;">
+                        <div style="font-size:11px;font-weight:700;color:#4a235a;">Submitted Report (round ${data.inspectionRound || 1})</div>`;
+                    if (data.inspectionReportImage) {
+                        ih += `<img src="${escapeHtml(data.inspectionReportImage)}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid #e5e7eb;">`;
+                    }
+                    if (data.inspectionReportNotes) {
+                        ih += `<div style="font-size:12px;color:#334155;">${escapeHtml(data.inspectionReportNotes)}</div>`;
+                    }
+                    ih += `<div style="font-size:12px;color:#0a6640;font-weight:700;">Proposed price: &#8369;${escapeHtml(data.inspectionProposedPrice || '0.00')} &middot; Proposed working date: ${escapeHtml(data.inspectionProposedWorkingDate || '-')}</div>`;
+                    ih += `</div>`;
+                }
+                inspSection.innerHTML = ih;
+                inspSection.style.display = ''; inspLabel.style.display = '';
+            } else {
+                inspSection.style.display = 'none'; inspLabel.style.display = 'none';
+            }
+
             // ── Payment section ──
             const paySection = document.getElementById('vdPaymentSection');
             document.getElementById('vdPaymentLabel').style.display = '';
@@ -3426,7 +3392,7 @@ chdir(dirname(__DIR__));
             // ── Control Numbers section ──
             const codesSection = document.getElementById('vdCodesSection');
             const codesLabel   = document.getElementById('vdCodesLabel');
-            if (data.seekerCtrl || data.providerCtrl) {
+            if ((data.seekerCtrl || data.providerCtrl) && data.isPaidEnough) {
                 let ch = '<div class="vd-info-grid" style="width:100%;">';
                 if (data.seekerCtrl) {
                     // Do NOT show the value — provider must get this code from the seeker in person
@@ -3445,7 +3411,7 @@ chdir(dirname(__DIR__));
             // ── Verification section ──
             const verifySection = document.getElementById('vdVerifySection');
             const verifyLabel   = document.getElementById('vdVerifyLabel');
-            if (data.seekerCtrl) {
+            if (data.seekerCtrl && data.isPaidEnough) {
                 let vh = '';
                 if (data.dualVerified) {
                     vh = `<div class="vd-info-card full-width"><span style="display:inline-flex;align-items:center;gap:6px;background:#d1fae5;color:#065f46;font-size:12px;font-weight:700;padding:6px 12px;border-radius:8px;"><i class="fas fa-check-double"></i> Both Verified</span></div>`;
@@ -3538,21 +3504,36 @@ chdir(dirname(__DIR__));
                 if (data.showEmergencyAcceptBtn) {
                     fh += `<button class="btn-emergency-accept" onclick="closeViewDetails();submitEmergencyAccept(_vdData.id);"><i class="fas fa-bolt"></i> Accept Emergency</button>`;
                 }
-                if (data.isStarting) {
+                if (data.needsInspectionReport) {
+                    fh += `<button class="action-main-btn" style="background:linear-gradient(135deg,#4a235a,#6c3483);" onclick="closeViewDetails();openInspectionReportModal(_vdData.id,_vdData.assignedStaffId,_vdData.assignedStaffName,_vdData.isRevising);"><i class="fas fa-clipboard-check"></i> ${data.isRevising ? 'Resubmit Inspection Report' : 'Submit Inspection Report'}</button>`;
+                } else if (data.awaitingAgreement) {
+                    fh += `<span class="action-main-btn" style="background:#e8daef;color:#4a235a;border:1.5px solid #d7bde2;cursor:default;"><i class="fas fa-hourglass-half"></i> Waiting for Seeker's Decision</span>`;
+                } else if (data.isStarting) {
                     fh += `<button class="action-main-btn" style="background:linear-gradient(135deg,#1e3a8a,#1d4ed8);" onclick="closeViewDetails();openQrScanModal();"><i class="fas fa-qrcode"></i> Scan Seeker QR</button>`;
                 } else if (data.nextStepKey) {
                     if (data.nextStepKey === 'starting') {
-                        if (data.isBeforeServiceDay && !data.providerVerified) {
+                        if (!data.isPaidEnough) {
+                            fh += `<span class="action-main-btn" style="background:#f1f5f9;color:#64748b;border:1.5px solid #e2e8f0;cursor:default;"><i class="fas fa-lock"></i> Awaiting Payment</span>`;
+                        } else if (data.isBeforeServiceDay && !data.providerVerified) {
                             fh += `<button class="action-main-btn" onclick="closeViewDetails();openCtel(_vdData.id,_vdData.fullName,_vdData.seekerVerifiedForCtel,false,true);"><i class="fas fa-clock"></i> Start Early</button>`;
                         } else if (data.isBeforeServiceDay && data.providerVerified && !data.dualVerified) {
                             fh += `<span class="action-main-btn" style="background:#fef9c3;color:#92400e;border:1.5px solid #fde68a;cursor:default;"><i class="fas fa-hourglass-half"></i> Waiting for Seeker Verification</span>`;
                         }
+                    } else if (data.nextStepKey === 'preparing') {
+                        fh += `<button class="action-main-btn" onclick="closeViewDetails();openPrepareBooking({availId:_vdData.id, staffId:_vdData.assignedStaffId, companionId:0, serviceEquipment:_vdData.serviceEquipment, isEdit:false, notes:''});"><i class="fas fa-people-carry-box"></i> Prepare Booking</button>`;
                     } else {
                         fh += `<button class="action-main-btn" onclick="closeViewDetails();handleStepNext(null,_vdData.id,_vdData.currentStepLabel,_vdData.currentStepBg,_vdData.currentStepColor,_vdData.nextStepLabel,_vdData.nextStepKey,_vdData.nextStepBg,_vdData.nextStepColor,_vdData.fullName,_vdData.preferredDatetime,_vdData.address,_vdData.isDualVerified,_vdData.isTestServiceDay);"><i class="fas fa-arrow-right"></i> Advance to ${escapeHtml(data.nextStepLabel)}</button>`;
                     }
                 }
-                if (data.isVerifiable && !data.isBeforeServiceDay && !data.dualVerified) {
+                if (data.isVerifiable && data.isPaidEnough && !data.isBeforeServiceDay && !data.dualVerified) {
                     fh += `<button class="btn-verify-ctrl" onclick="closeViewDetails();openCtel(_vdData.id,_vdData.fullName,_vdData.seekerVerifiedForCtel,_vdData.isTestServiceDay);"><i class="fas fa-shield-alt"></i> ${data.providerVerified ? 'Code Verified ✓' : 'Enter Seeker Code'}</button>`;
+                }
+                // Equipment/staff editing isn't tied to the next-step machinery
+                // above (a Preparing booking's next step is 'starting', which
+                // renders payment/code-verification controls) — offered
+                // additively alongside whatever else this status shows.
+                if (data.isPreparing) {
+                    fh += `<button class="action-main-btn" style="background:linear-gradient(135deg,#0c5460,#0891b2);" onclick="closeViewDetails();openPrepareBooking({availId:_vdData.id, staffId:_vdData.bookingAssignedEmployeeId, companionId:_vdData.bookingCompanionEmployeeId, isEdit:true, currentEquipment:_vdData.bookingAssignedEquipment, currentConsumables:_vdData.bookingAssignedConsumables, notes:_vdData.operationsNotes});"><i class="fas fa-toolbox"></i> Edit Equipment & Staff</button>`;
                 }
             }
             footer.innerHTML = fh;
@@ -3984,7 +3965,7 @@ chdir(dirname(__DIR__));
 
         <?php if ($ctrl_result === 'ok'): ?>
         window.addEventListener('DOMContentLoaded', function() {
-            showCleanToast('Both control numbers verified. Service is now Starting.', 'success');
+            showCleanToast('Both control numbers verified. Scan the seeker\'s QR code on arrival to start service.', 'success');
         });
         <?php endif; ?>
 
@@ -4060,6 +4041,270 @@ chdir(dirname(__DIR__));
     </div>
   </div>
 </div>
+
+<!-- Inspection Report Modal (photo + description + proposed price/working date) -->
+<div id="inspectionReportOverlay" style="
+    display:none;position:fixed;inset:0;
+    background:rgba(10,20,40,0.78);backdrop-filter:blur(6px);
+    z-index:21000;align-items:center;justify-content:center;padding:20px;">
+  <div style="
+    background:#fff;border-radius:22px;max-width:560px;width:100%;
+    max-height:88vh;display:flex;flex-direction:column;
+    box-shadow:0 24px 64px rgba(0,0,0,.35);overflow:hidden;">
+
+    <div style="background:linear-gradient(135deg,#4a235a,#6c3483);padding:22px 26px 18px;position:relative;display:flex;align-items:center;gap:14px;flex-shrink:0;">
+      <div style="width:40px;height:40px;background:rgba(255,255,255,.15);border-radius:10px;
+          display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;flex-shrink:0;">
+        <i class="fas fa-clipboard-check"></i>
+      </div>
+      <div>
+        <h3 id="inspReportTitle" style="margin:0 0 2px;color:#fff;font-size:17px;font-weight:800;">Submit Inspection Report</h3>
+        <p style="margin:0;color:#e8daef;font-size:12px;">Photo, findings, final price, and a proposed working date.</p>
+      </div>
+      <button onclick="closeInspectionReportModal()" style="
+          position:absolute;top:14px;right:14px;
+          background:rgba(255,255,255,.15);border:none;color:#fff;
+          width:30px;height:30px;border-radius:50%;cursor:pointer;
+          display:flex;align-items:center;justify-content:center;font-size:13px;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <form method="POST" id="inspectionReportForm" enctype="multipart/form-data" style="overflow-y:auto;flex:1;min-height:0;">
+      <input type="hidden" name="submit_inspection_report" value="1">
+      <input type="hidden" name="avail_id" id="inspAvailId" value="">
+
+      <div style="padding:22px 26px;">
+        <div id="inspReportErrorBox" style="display:none;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px 12px;font-size:12.5px;margin-bottom:16px;"></div>
+
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;">Field Technician *</label>
+          <?php if (empty($fieldStaffOptions)): ?>
+            <div style="padding:11px 14px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:13px;">
+              No field technicians yet. In the provider portal's HR module, add an employee with Staff Type "Field Technician".
+            </div>
+          <?php else: ?>
+          <select name="staff_id" id="inspStaffSelect" required style="width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;">
+            <option value="">— Select field technician —</option>
+            <?php foreach ($fieldStaffOptions as $fs): ?>
+            <option value="<?php echo (int)$fs['id']; ?>"><?php echo htmlspecialchars($fs['full_name']); ?></option>
+            <?php endforeach; ?>
+          </select>
+          <?php endif; ?>
+        </div>
+
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;"><i class="fas fa-camera"></i> Inspection Photo *</label>
+          <input type="file" name="inspection_image" id="inspImageInput" accept="image/jpeg,image/png,image/webp" required style="width:100%;padding:9px 10px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:13px;">
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;">JPG, PNG, or WEBP — up to 8MB.</div>
+        </div>
+
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;">What did the inspection find? What will happen? *</label>
+          <textarea name="inspection_notes" id="inspNotesInput" rows="4" required style="width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:13px;font-family:inherit;" placeholder="Describe the site condition, scope of work, and what the seeker should expect on the working date..."></textarea>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px;">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;">Final Price (&#8369;) *</label>
+            <input type="number" name="proposed_price" id="inspPriceInput" min="0.01" step="0.01" required style="width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;">Proposed Working Date *</label>
+            <input type="date" name="proposed_working_date" id="inspWorkingDateInput" required min="<?php echo date('Y-m-d'); ?>" style="width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;">
+          </div>
+        </div>
+      </div>
+
+      <div style="padding:16px 26px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;">
+        <button type="button" onclick="closeInspectionReportModal()" style="padding:10px 18px;border:1.5px solid #e2e8f0;border-radius:9px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>
+        <button type="submit" class="action-main-btn" style="font-size:13px;padding:10px 20px;background:linear-gradient(135deg,#4a235a,#6c3483);" <?php echo empty($fieldStaffOptions) ? 'disabled' : ''; ?>>
+          <i class="fas fa-paper-plane"></i> Send to Seeker
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openInspectionReportModal(availId, assignedStaffId, assignedStaffName, isRevising) {
+    document.getElementById('inspAvailId').value = availId;
+    document.getElementById('inspReportTitle').textContent = isRevising ? 'Resubmit Inspection Report' : 'Submit Inspection Report';
+    const sel = document.getElementById('inspStaffSelect');
+    if (sel && assignedStaffId) { sel.value = String(assignedStaffId); }
+    document.getElementById('inspectionReportOverlay').style.display = 'flex';
+}
+function closeInspectionReportModal() {
+    document.getElementById('inspectionReportOverlay').style.display = 'none';
+}
+</script>
+
+<!-- Prepare Booking Modal (staff + equipment/consumables assignment) -->
+<div id="prepareBookingOverlay" style="
+    display:none;position:fixed;inset:0;
+    background:rgba(10,20,40,0.78);backdrop-filter:blur(6px);
+    z-index:21000;align-items:center;justify-content:center;padding:20px;">
+  <div style="
+    background:#fff;border-radius:22px;max-width:560px;width:100%;
+    max-height:88vh;display:flex;flex-direction:column;
+    box-shadow:0 24px 64px rgba(0,0,0,.35);overflow:hidden;">
+
+    <div style="background:linear-gradient(135deg,#0c5460,#0891b2);padding:22px 26px 18px;position:relative;display:flex;align-items:center;gap:14px;flex-shrink:0;">
+      <div style="width:40px;height:40px;background:rgba(255,255,255,.15);border-radius:10px;
+          display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;flex-shrink:0;">
+        <i class="fas fa-people-carry-box"></i>
+      </div>
+      <div>
+        <h3 id="prepareBookingTitle" style="margin:0 0 2px;color:#fff;font-size:17px;font-weight:800;">Prepare Booking</h3>
+        <p style="margin:0;color:#a5f3fc;font-size:12px;">Assign a field technician and any equipment/consumables needed.</p>
+      </div>
+      <button onclick="closePrepareBooking()" style="
+          position:absolute;top:14px;right:14px;
+          background:rgba(255,255,255,.15);border:none;color:#fff;
+          width:30px;height:30px;border-radius:50%;cursor:pointer;
+          display:flex;align-items:center;justify-content:center;font-size:13px;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <form method="POST" id="prepareBookingForm" style="overflow-y:auto;flex:1;min-height:0;">
+      <input type="hidden" name="prepare_booking" value="1">
+      <input type="hidden" name="avail_id" id="prepAvailId" value="">
+      <input type="hidden" name="equipment_json" id="prepEquipJson">
+      <input type="hidden" name="consumables_json" id="prepConsJson">
+
+      <div style="padding:22px 26px;">
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;">Field Technician *</label>
+          <?php if (empty($fieldStaffOptions)): ?>
+            <div style="padding:11px 14px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:13px;">
+              No field technicians yet. In the provider portal's HR module, add an employee with Staff Type "Field Technician" — they can log in and see their assigned bookings right away, no promotion needed.
+            </div>
+          <?php else: ?>
+          <select name="staff_id" id="prepStaffSelect" required style="width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;">
+            <option value="">— Select field technician —</option>
+            <?php foreach ($fieldStaffOptions as $fs): ?>
+            <option value="<?php echo (int)$fs['id']; ?>"><?php echo htmlspecialchars($fs['full_name']); ?></option>
+            <?php endforeach; ?>
+          </select>
+          <?php endif; ?>
+        </div>
+
+        <?php if (!empty($fieldStaffOptions)): ?>
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;">Companion (optional co-staff)</label>
+          <select name="companion_id" id="prepCompanionSelect" style="width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;">
+            <option value="">— None —</option>
+            <?php foreach ($fieldStaffOptions as $fs): ?>
+            <option value="<?php echo (int)$fs['id']; ?>"><?php echo htmlspecialchars($fs['full_name']); ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <?php endif; ?>
+
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:8px;"><i class="fas fa-toolbox"></i> Equipment</label>
+          <?php if (empty($prepEquipment)): ?>
+            <p style="color:#94a3b8;font-size:13px;margin:0;">No equipment in inventory.</p>
+          <?php else: foreach ($prepEquipment as $item): ?>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+              <div style="flex:1;font-size:13px;"><?php echo htmlspecialchars($item['item_name']); ?>
+                <div style="color:#94a3b8;font-size:11px;">Available now: <?php echo (int)$item['available_now']; ?> of <?php echo (int)$item['quantity_available']; ?> owned <?php echo htmlspecialchars($item['unit'] ?? ''); ?></div>
+              </div>
+              <input type="number" class="prep-equip-qty" min="0" max="<?php echo (int)$item['available_now']; ?>" value="0" data-id="<?php echo (int)$item['id']; ?>"
+                  style="width:90px;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;">
+            </div>
+          <?php endforeach; endif; ?>
+        </div>
+
+        <div style="margin-bottom:18px;">
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:8px;"><i class="fas fa-flask"></i> Consumables</label>
+          <?php if (empty($prepConsumables)): ?>
+            <p style="color:#94a3b8;font-size:13px;margin:0;">No consumables in inventory.</p>
+          <?php else: foreach ($prepConsumables as $item): ?>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+              <div style="flex:1;font-size:13px;"><?php echo htmlspecialchars($item['item_name']); ?>
+                <div style="color:#94a3b8;font-size:11px;">Available: <?php echo (int)$item['quantity_available']; ?> <?php echo htmlspecialchars($item['unit'] ?? ''); ?></div>
+              </div>
+              <input type="number" class="prep-cons-qty" min="0" max="<?php echo (int)$item['quantity_available']; ?>" value="0" data-id="<?php echo (int)$item['id']; ?>"
+                  style="width:90px;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;">
+            </div>
+          <?php endforeach; endif; ?>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:6px;">Operations Notes</label>
+          <textarea name="operations_notes" id="prepNotesInput" rows="2" style="width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:13px;font-family:inherit;"></textarea>
+        </div>
+      </div>
+
+      <div style="padding:16px 26px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;">
+        <button type="button" onclick="closePrepareBooking()" style="padding:10px 18px;border:1.5px solid #e2e8f0;border-radius:9px;background:#fff;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>
+        <button type="submit" class="action-main-btn" id="prepareBookingSubmitBtn" style="font-size:13px;padding:10px 20px;" <?php echo empty($fieldStaffOptions) ? 'disabled' : ''; ?>>
+          <i class="fas fa-check"></i> Save &amp; Set to Preparing
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// opts: {availId, staffId, companionId, serviceEquipment, isEdit,
+//        currentEquipment, currentConsumables, notes}
+// isEdit=false (fresh Prepare, from 'accepted'): prefills quantities from
+// the service's suggested equipment (serviceEquipment).
+// isEdit=true (already 'preparing', re-opened via "Edit Equipment & Staff"):
+// prefills from what the booking currently holds, and raises each input's
+// max by that same held amount — the server excludes this booking's own
+// usage from its own availability check the same way (see
+// prepareAvailedBooking()'s $excludeAvailedId), so the true ceiling here is
+// "available to everyone else" + "already held by this booking".
+function openPrepareBooking(opts) {
+    document.getElementById('prepAvailId').value = opts.availId;
+    document.getElementById('prepareBookingTitle').textContent = opts.isEdit ? 'Edit Equipment & Staff' : 'Prepare Booking';
+    document.getElementById('prepareBookingSubmitBtn').innerHTML = opts.isEdit
+        ? '<i class="fas fa-check"></i> Save Changes'
+        : '<i class="fas fa-check"></i> Save &amp; Set to Preparing';
+
+    const sel = document.getElementById('prepStaffSelect');
+    if (sel) { sel.value = opts.staffId ? String(opts.staffId) : ''; }
+    const compSel = document.getElementById('prepCompanionSelect');
+    if (compSel) { compSel.value = opts.companionId ? String(opts.companionId) : ''; }
+
+    const heldById = {};
+    if (opts.isEdit) {
+        (opts.currentEquipment || []).forEach(function (e) { heldById[String(e.id)] = e.qty; });
+        (opts.currentConsumables || []).forEach(function (e) { heldById[String(e.id)] = e.qty; });
+    } else {
+        (opts.serviceEquipment || []).forEach(function (e) { heldById[String(e.id)] = e.qty; });
+    }
+    document.querySelectorAll('.prep-equip-qty, .prep-cons-qty').forEach(function (el) {
+        const held = heldById[el.dataset.id] || 0;
+        if (opts.isEdit && held > 0) { el.max = String(parseInt(el.max, 10) + held); }
+        el.value = held;
+    });
+
+    document.getElementById('prepNotesInput').value = opts.notes || '';
+    document.getElementById('prepareBookingOverlay').style.display = 'flex';
+}
+function closePrepareBooking() {
+    document.getElementById('prepareBookingOverlay').style.display = 'none';
+}
+document.getElementById('prepareBookingForm')?.addEventListener('submit', function(e) {
+    const staffSel = document.getElementById('prepStaffSelect');
+    const compSel = document.getElementById('prepCompanionSelect');
+    if (staffSel && compSel && compSel.value && compSel.value === staffSel.value) {
+        e.preventDefault();
+        alert('Companion must be a different technician than the primary assignee.');
+        return;
+    }
+    const eq = [], cn = [];
+    document.querySelectorAll('.prep-equip-qty').forEach(el => { if (+el.value > 0) eq.push({inventory_item_id: +el.dataset.id, quantity_needed: +el.value}); });
+    document.querySelectorAll('.prep-cons-qty').forEach(el => { if (+el.value > 0) cn.push({inventory_item_id: +el.dataset.id, quantity_needed: +el.value}); });
+    document.getElementById('prepEquipJson').value = JSON.stringify(eq);
+    document.getElementById('prepConsJson').value  = JSON.stringify(cn);
+});
+</script>
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
@@ -4147,6 +4392,19 @@ function showQrResult(success, msg) {
     }
     el.innerHTML = msg;
 }
+
+// Deep-link support: provider/messages-provider.php's chat panel opens
+// this page in a new tab with ?open_booking=<id> for actions the chat
+// itself doesn't handle inline (equipment picker, QR scan, inspection
+// photo, etc.) — auto-opens that booking's View Details modal on load so
+// the provider lands straight on it instead of the plain table.
+(function () {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get('open_booking');
+    if (!openId) return;
+    const btn = document.querySelector('.btn-view-details[data-avail-id="' + CSS.escape(openId) + '"]');
+    if (btn) btn.click();
+})();
 </script>
 </body>
 </html>

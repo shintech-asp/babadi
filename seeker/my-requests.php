@@ -9,6 +9,8 @@ require_once 'config/config.php';
 require_once 'config/database.php';
 require_once appPath('includes/payment_receipt_helper.php');
 require_once appPath('includes/availed_booking_helper.php');
+require_once appPath('includes/booking_workflow_helper.php');
+require_once appPath('config/send_email.php');
 
 // Auth check: if user_type isn't in session, fetch it from DB and repair the session
 if (!isLoggedIn()) {
@@ -191,6 +193,8 @@ try {
                 $result = 'not_found';
             } elseif ($decision !== 'accept' && $decision !== 'reject') {
                 $result = 'invalid';
+            } elseif (in_array(strtolower(trim((string)($row['status'] ?? ''))), ['completed', 'cancelled'], true)) {
+                $result = 'already_final';
             } elseif (strtolower(trim((string)($row['reschedule_request_status'] ?? ''))) !== 'pending'
                 || empty($row['reschedule_proposed_date'])
                 || empty($row['reschedule_proposed_time'])) {
@@ -213,7 +217,8 @@ try {
                          updated_at = NOW()
                      WHERE id = :id
                        AND (seeker_user_id = :uid OR user_id = :uid2)
-                       AND reschedule_request_status = 'pending'"
+                       AND reschedule_request_status = 'pending'
+                       AND status NOT IN ('completed', 'cancelled')"
                 );
                 $up->execute([
                     ':new_date' => $row['reschedule_proposed_date'],
@@ -270,7 +275,8 @@ try {
                          updated_at = NOW()
                      WHERE id = :id
                        AND (seeker_user_id = :uid OR user_id = :uid2)
-                       AND reschedule_request_status = 'pending'"
+                       AND reschedule_request_status = 'pending'
+                       AND status NOT IN ('completed', 'cancelled')"
                 );
                 $up->execute([
                     ':id' => $availId,
@@ -318,6 +324,191 @@ try {
         exit;
     }
 
+    /* Inspection flow: seeker agrees to the technician's proposed working
+       date + final price (locks them in, re-enters the normal
+       accepted -> preparing pipeline) or requests changes (loops the
+       booking back to the provider for a revised report). See
+       CLAUDE.md's "Recent Work Log" for the full design writeup. */
+    if (isset($_POST['agree_inspection']) && isset($_POST['avail_id'])) {
+        $availId = (int)$_POST['avail_id'];
+        $result  = 'error';
+
+        try {
+            $iq = $db->prepare(
+                "SELECT a.id, a.status, a.provider_id, a.payment_method, a.downpayment_amount,
+                        a.inspection_proposed_price, a.inspection_proposed_working_date,
+                        p.user_id AS provider_user_id, pu.email AS provider_email, pu.first_name AS provider_first_name
+                 FROM availed_services a
+                 JOIN providers p ON p.id = a.provider_id
+                 LEFT JOIN users pu ON pu.id = p.user_id
+                 WHERE a.id = :id AND (a.seeker_user_id = :uid OR a.user_id = :uid2)
+                 LIMIT 1"
+            );
+            $iq->execute([':id' => $availId, ':uid' => $uid, ':uid2' => $uid]);
+            $row = $iq->fetch(PDO::FETCH_ASSOC);
+
+            if (!$row) {
+                $result = 'not_found';
+            } elseif ($row['status'] !== 'awaiting_agreement') {
+                $result = 'not_ready';
+            } elseif (empty($row['inspection_proposed_working_date']) || (float)$row['inspection_proposed_price'] <= 0) {
+                $result = 'invalid';
+            } else {
+                $finalPrice = (float)$row['inspection_proposed_price'];
+                $isDownpayment = ($row['payment_method'] === 'downpayment');
+                $dp = $isDownpayment ? min((float)$row['downpayment_amount'], $finalPrice) : 0;
+                if ($isDownpayment && $dp <= 0) { $dp = round($finalPrice * 0.5, 2); }
+                $remaining = $isDownpayment ? round($finalPrice - $dp, 2) : 0;
+
+                $up = $db->prepare(
+                    "UPDATE availed_services
+                     SET working_date = :wdate,
+                         preferred_date = :wdate2,
+                         total_amount = :amt,
+                         downpayment_amount = :dp,
+                         remaining_amount = :rem,
+                         inspection_agreed_at = NOW(),
+                         status = 'accepted',
+                         is_read = 0,
+                         updated_at = NOW()
+                     WHERE id = :id
+                       AND (seeker_user_id = :uid OR user_id = :uid2)
+                       AND status = 'awaiting_agreement'"
+                );
+                $up->execute([
+                    ':wdate' => $row['inspection_proposed_working_date'],
+                    ':wdate2' => $row['inspection_proposed_working_date'],
+                    ':amt' => $finalPrice,
+                    ':dp' => $dp,
+                    ':rem' => $remaining,
+                    ':id' => $availId,
+                    ':uid' => $uid,
+                    ':uid2' => $uid,
+                ]);
+
+                if ($up->rowCount() > 0) {
+                    appendAvailedStatusHistory($db, $availId, 'awaiting_agreement', 'accepted', $uid, 'seeker', 'Seeker agreed to the proposed working date and price.');
+
+                    if (!empty($row['provider_user_id'])) {
+                        try {
+                            $db->prepare(
+                                "INSERT INTO notifications (user_id, type, title, message, related_id, related_type, action_url, is_read, created_at)
+                                 VALUES (:uid, 'request', :title, :message, :rid, 'availed_service', :url, 0, NOW())"
+                            )->execute([
+                                ':uid' => (int)$row['provider_user_id'],
+                                ':title' => 'Working Date Agreed — #' . $availId,
+                                ':message' => 'Seeker agreed to the proposed working date (' . date('M j, Y', strtotime((string)$row['inspection_proposed_working_date'])) . ') and price. You can now Prepare Booking.',
+                                ':rid' => $availId,
+                                ':url' => '/pestify/provider/service-requests.php',
+                            ]);
+                        } catch (Exception $e) {}
+                    }
+                    if (!empty($row['provider_email'])) {
+                        try {
+                            $mailer = new EmailSender();
+                            $mailer->sendCustomEmail(
+                                $row['provider_email'],
+                                $row['provider_first_name'] ?? '',
+                                'Working Date Agreed — Booking #' . $availId,
+                                "The seeker agreed to the proposed working date and price.\n\nWorking date: " . date('F j, Y', strtotime((string)$row['inspection_proposed_working_date'])) .
+                                "\nFinal price: PHP " . number_format($finalPrice, 2) .
+                                "\n\nYou can now Prepare Booking from your Service Requests dashboard."
+                            );
+                        } catch (Exception $e) {}
+                    }
+                    $result = 'agreed';
+                } else {
+                    $result = 'not_ready';
+                }
+            }
+        } catch (Exception $e) {
+            $result = 'error';
+        }
+
+        header('Location: my-requests.php?inspection_response=' . urlencode($result) . '&booking_id=' . $availId);
+        exit;
+    }
+
+    if (isset($_POST['request_inspection_changes']) && isset($_POST['avail_id'])) {
+        $availId = (int)$_POST['avail_id'];
+        $changeNotes = trim((string)($_POST['inspection_change_notes'] ?? ''));
+        $result  = 'error';
+
+        if ($changeNotes === '') {
+            $result = 'notes_required';
+        } else {
+            try {
+                $iq = $db->prepare(
+                    "SELECT a.id, a.status, p.user_id AS provider_user_id, pu.email AS provider_email, pu.first_name AS provider_first_name
+                     FROM availed_services a
+                     JOIN providers p ON p.id = a.provider_id
+                     LEFT JOIN users pu ON pu.id = p.user_id
+                     WHERE a.id = :id AND (a.seeker_user_id = :uid OR a.user_id = :uid2)
+                     LIMIT 1"
+                );
+                $iq->execute([':id' => $availId, ':uid' => $uid, ':uid2' => $uid]);
+                $row = $iq->fetch(PDO::FETCH_ASSOC);
+
+                if (!$row) {
+                    $result = 'not_found';
+                } elseif ($row['status'] !== 'awaiting_agreement') {
+                    $result = 'not_ready';
+                } else {
+                    $up = $db->prepare(
+                        "UPDATE availed_services
+                         SET inspection_change_notes = :notes,
+                             status = 'revising',
+                             is_read = 0,
+                             updated_at = NOW()
+                         WHERE id = :id
+                           AND (seeker_user_id = :uid OR user_id = :uid2)
+                           AND status = 'awaiting_agreement'"
+                    );
+                    $up->execute([':notes' => $changeNotes, ':id' => $availId, ':uid' => $uid, ':uid2' => $uid]);
+
+                    if ($up->rowCount() > 0) {
+                        appendAvailedStatusHistory($db, $availId, 'awaiting_agreement', 'revising', $uid, 'seeker', 'Seeker requested changes: ' . $changeNotes);
+
+                        if (!empty($row['provider_user_id'])) {
+                            try {
+                                $db->prepare(
+                                    "INSERT INTO notifications (user_id, type, title, message, related_id, related_type, action_url, is_read, created_at)
+                                     VALUES (:uid, 'request', :title, :message, :rid, 'availed_service', :url, 0, NOW())"
+                                )->execute([
+                                    ':uid' => (int)$row['provider_user_id'],
+                                    ':title' => 'Seeker Requested Changes — #' . $availId,
+                                    ':message' => 'Seeker requested changes to the inspection report: ' . $changeNotes,
+                                    ':rid' => $availId,
+                                    ':url' => '/pestify/provider/service-requests.php',
+                                ]);
+                            } catch (Exception $e) {}
+                        }
+                        if (!empty($row['provider_email'])) {
+                            try {
+                                $mailer = new EmailSender();
+                                $mailer->sendCustomEmail(
+                                    $row['provider_email'],
+                                    $row['provider_first_name'] ?? '',
+                                    'Seeker Requested Changes — Booking #' . $availId,
+                                    "The seeker requested changes to your inspection report:\n\n" . $changeNotes .
+                                    "\n\nPlease submit a revised report from your Service Requests dashboard."
+                                );
+                            } catch (Exception $e) {}
+                        }
+                        $result = 'changes_requested';
+                    } else {
+                        $result = 'not_ready';
+                    }
+                }
+            } catch (Exception $e) {
+                $result = 'error';
+            }
+        }
+
+        header('Location: my-requests.php?inspection_response=' . urlencode($result) . '&booking_id=' . $availId);
+        exit;
+    }
+
     /* Seeker maeks Ongoing service as done -> moves to waiting payment (or next confirmation) */
     if (isset($_POST['mark_service_done_from_ongoing']) && isset($_POST['avail_id'])) {
         $availId = (int)$_POST['avail_id'];
@@ -336,7 +527,11 @@ try {
             if (!$row) {
                 $result = 'not_found';
             } else {
-                $status = strtolower(trim((string)($row['status'] ?? '')));
+                // DB stores 'on_going' (underscore); normalizeWorkflowStatus() bridges
+                // it to 'ongoing' for this comparison. Previously this was a raw
+                // strtolower() with no bridge, so a real on_going row always fell
+                // into the 'not_ongoing' branch and the Done Service button never worked.
+                $status = normalizeWorkflowStatus((string)($row['status'] ?? ''));
                 $payStat = strtolower(trim((string)($row['payment_status'] ?? '')));
                 $remaining = (float)($row['remaining_amount'] ?? 0);
                 $hasRemaining = ($payStat === 'partial' && $remaining > 0.009);
@@ -355,7 +550,7 @@ try {
                              updated_at = NOW()
                          WHERE id = :id
                            AND (seeker_user_id = :uid OR user_id = :uid2)
-                           AND status = 'ongoing'"
+                           AND status = '" . BK_ONGOING . "'"
                     );
                     $up->execute([
                         ':next_status' => $nextStatus,
@@ -550,7 +745,7 @@ try {
             $vStmt = $db->prepare(
                 "SELECT id, preferred_date, control_number, provider_control_number,
                         seeker_verified_at, provider_verified_at, dual_verified_at,
-                        service_name, provider_id, status, seeker_user_id
+                        service_name, provider_id, status, seeker_user_id, payment_status
                  FROM availed_services
                  WHERE id = :id AND (seeker_user_id = :uid OR user_id = :uid2)
                  LIMIT 1"
@@ -565,6 +760,13 @@ try {
 
             if ($isRealTimestamp($vRow['dual_verified_at'] ?? null)) {
                 echo json_encode(['status' => 'already_done', 'message' => 'Both codes were already verified. Service is already Starting!']);
+                exit;
+            }
+
+            // Same "paid or at least a downpayment" bar $canEmergencyNow
+            // already uses below — 'partial' still counts (downpayment plan).
+            if (!in_array((string)($vRow['payment_status'] ?? ''), ['paid', 'partial'], true)) {
+                echo json_encode(['status' => 'error', 'message' => 'Please complete payment before verifying to start the service.']);
                 exit;
             }
 
@@ -588,7 +790,7 @@ try {
 
             /* -- Validate: submitted code must match provider_control_number -- */
             if (!$providerCodeMatches((string)$vRow['provider_control_number'], $codeInput)) {
-                echo json_encode(['status' => 'fail', 'message' => '? Incorrect Provider Code. Enter the PCP/PCV code from your payment confirmation notification and try again.']);
+                echo json_encode(['status' => 'fail', 'message' => '❌ Incorrect Provider Code. Enter the PCP/PCV code from your payment confirmation notification and try again.']);
                 exit;
             }
 
@@ -609,12 +811,19 @@ try {
             $providerDone = $isRealTimestamp($vRow['provider_verified_at'] ?? null);
 
             if ($providerDone) {
-                /* ? BOTH verified — unlock service */
+                /* Both verified — unlock to 'starting'. This confirms both sides
+                   agreed to start (often before the technician is physically
+                   on-site) — it is not itself proof of arrival, so generate a
+                   QR token and require an on-site scan (scanQrAndStartService())
+                   before the service is actually marked ongoing. Matches the
+                   same pattern used in provider/service-requests.php's ctel
+                   handler so both call orders converge on identical results. */
+                $seekerCtelQrToken = generateQrToken($availId);
                 $db->prepare(
                     "UPDATE availed_services
-                     SET status = 'starting', dual_verified_at = NOW(), updated_at = NOW()
+                     SET status = 'starting', dual_verified_at = NOW(), qr_token = :qr, updated_at = NOW()
                      WHERE id = :id AND (seeker_user_id = :uid OR user_id = :uid2)"
-                )->execute([':id' => $availId, ':uid' => $uid, ':uid2' => $uid]);
+                )->execute([':id' => $availId, ':uid' => $uid, ':uid2' => $uid, ':qr' => $seekerCtelQrToken]);
 
                 /* Notify seeker via seeker_notifications */
                 try {
@@ -633,13 +842,13 @@ try {
 
                 echo json_encode([
                     'status'  => 'full_unlock',
-                    'message' => '? Both control numbers verified! Service is now Starting.',
+                    'message' => '✅ Both control numbers verified! Service is now Starting.',
                 ]);
             } else {
                 /* Provider hasn't verified yet — waiting */
                 echo json_encode([
                     'status'  => 'seeker_done',
-                    'message' => '? Provider code verified! Waiting for the technician to enter your seeker code on their end.',
+                    'message' => '✅ Provider code verified! Waiting for the technician to enter your seeker code on their end.',
                 ]);
             }
         } catch(Exception $e) {
@@ -686,9 +895,27 @@ try {
             'no_request' => 'There is no pending reschedule request for this booking anymore.',
             'invalid' => 'Invalid reschedule response.',
             'not_found' => 'Booking not found or no longer accessible.',
+            'already_final' => 'This booking is already completed or cancelled and cannot be rescheduled.',
             default => 'Unable to process the reschedule request right now. Please try again.',
         };
         $reschedule_response_is_error = !in_array($reschedule_response_result, ['accepted', 'rejected'], true);
+    }
+
+    $inspection_response_result = trim((string)($_GET['inspection_response'] ?? ''));
+    $inspection_response_bid    = (int)($_GET['booking_id'] ?? 0);
+    $inspection_response_msg    = '';
+    $inspection_response_is_error = false;
+    if ($inspection_response_result !== '') {
+        $inspection_response_msg = match ($inspection_response_result) {
+            'agreed' => 'You agreed to the proposed working date and price for Booking #' . $inspection_response_bid . '. The provider will now prepare the booking.',
+            'changes_requested' => 'Your requested changes were sent to the provider for Booking #' . $inspection_response_bid . '.',
+            'notes_required' => 'Please describe what changes you would like before sending.',
+            'not_ready' => 'This booking is not currently awaiting your inspection decision.',
+            'invalid' => 'The inspection report is missing required details. Please contact the provider.',
+            'not_found' => 'Booking not found or no longer accessible.',
+            default => 'Unable to process your response right now. Please try again.',
+        };
+        $inspection_response_is_error = !in_array($inspection_response_result, ['agreed', 'changes_requested'], true);
     }
 
     if ($service_confirmation_result !== '') {
@@ -726,10 +953,10 @@ try {
     $query = "SELECT sr.*,
                      p.company_name,
                      p.logo_url,
-                     sl.title as service_title,
+                     sl.service_name as service_title,
                      sl.price as service_price
               FROM service_requests sr
-              LEFT JOIN service_listings sl ON sr.listing_id = sl.id
+              LEFT JOIN services sl ON sr.listing_id = sl.id
               JOIN providers p ON sr.provider_id = p.user_id
               WHERE sr.seeker_id = :seeker_id
               ORDER BY sr.created_at DESC";
@@ -761,6 +988,7 @@ try {
                     COALESCE(a.provider_arrival_proof_uploaded_at, '') AS provider_arrival_proof_uploaded_at,
                     p.company_name, p.logo_url,
                     s.service_name,
+                    COALESCE(s.requires_inspection, 0) AS requires_inspection,
                     pt.transaction_id AS paymongo_link_id,
                     pt.status         AS payment_tx_status,
                     COALESCE((
@@ -946,7 +1174,7 @@ try {
     $availed_counts = ['pending'=>0,'active'=>0,'waiting_provider_confirmation'=>0,'completed'=>0,'cancelled'=>0,'rejected'=>0];
     foreach ($availed as $av) {
         $s = $av['status'];
-        if (in_array($s, ['accepted', 'preparing', 'starting', 'ongoing', 'waiting_remaining_payment'], true)) {
+        if (in_array($s, ['accepted', 'preparing', 'starting', 'ongoing', 'waiting_remaining_payment', 'awaiting_agreement', 'revising'], true)) {
             $availed_counts['active']++;
             continue;
         }
@@ -971,6 +1199,8 @@ function statusBadge(string $status): string {
         'waiting_provider_confirmation' => 'badge-info',
         'waiting_remaining_payment'     => 'badge-warning',
         'accepted', 'preparing', 'starting', 'on_the_way', 'in_progress', 'ongoing' => 'badge-success',
+        'awaiting_agreement'            => 'badge-info',
+        'revising'                      => 'badge-warning',
         'completed'                     => 'badge-primary',
         'cancelled', 'rejected'         => 'badge-danger',
         default                         => 'badge-secondary',
@@ -983,6 +1213,8 @@ function statusLabel(string $status): string {
         'waiting_remaining_payment'     => 'Awaiting Remaining Payment',
         'on_the_way'                    => 'On the Way',
         'in_progress'                   => 'In Progress',
+        'awaiting_agreement'            => 'Inspection Report Ready',
+        'revising'                      => 'Provider Revising Report',
         default                         => ucfirst(str_replace('_', ' ', $status)),
     };
 }
@@ -996,6 +1228,8 @@ function monitoringEventIcon(string $status): string {
         'ongoing', 'in_progress' => 'fa-briefcase',
         'waiting_remaining_payment' => 'fa-wallet',
         'waiting_provider_confirmation', 'waiting_seeker_confirmation' => 'fa-thumbs-up',
+        'awaiting_agreement' => 'fa-magnifying-glass',
+        'revising' => 'fa-rotate',
         'completed' => 'fa-flag-checkered',
         'cancelled', 'rejected' => 'fa-times-circle',
         default => 'fa-circle-dot',
@@ -1582,6 +1816,15 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
             </div>
         </div>
         <?php endif; ?>
+        <?php if ($inspection_response_msg !== ''): ?>
+        <div class="pay-strip" style="background:<?= $inspection_response_is_error ? 'linear-gradient(135deg,#fff1f2,#fff5f5)' : 'linear-gradient(135deg,#f5eef8,#faf5fc)' ?>;border-color:<?= $inspection_response_is_error ? '#fda29b' : '#d7bde2' ?>;margin-bottom:16px;">
+            <div class="pay-strip-icon" style="color:<?= $inspection_response_is_error ? '#dc2626' : '#4a235a' ?>;"><i class="fas <?= $inspection_response_is_error ? 'fa-triangle-exclamation' : 'fa-magnifying-glass' ?>"></i></div>
+            <div class="pay-strip-body">
+                <strong style="color:<?= $inspection_response_is_error ? '#b42318' : '#4a235a' ?>;">Inspection Update</strong>
+                <span style="color:<?= $inspection_response_is_error ? '#b42318' : '#6c3483' ?>;"><?= htmlspecialchars($inspection_response_msg) ?></span>
+            </div>
+        </div>
+        <?php endif; ?>
         <?php if ($service_confirmation_msg !== ''): ?>
         <div class="pay-strip" style="background:linear-gradient(135deg,#ecfdf3,#f0fdf4);border-color:#86efac;margin-bottom:16px;">
             <div class="pay-strip-icon" style="color:#15803d;"><i class="fas fa-thumbs-up"></i></div>
@@ -1622,11 +1865,27 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
         <div class="requests-list" id="availed-list">
         <?php if (count($availed) > 0): ?>
             <?php foreach ($availed as $av):
-                $bookingStatus = strtolower(trim((string)($av['status'] ?? '')));
+                // Bridges the DB's 'on_going' (underscore) to the 'ongoing' (no
+                // underscore) spelling every comparison below uses — previously
+                // this was a raw strtolower() with no bridge at all, so a real
+                // on_going booking never matched any 'ongoing' check anywhere
+                // on this page (e.g. the "Done Service" button never rendered).
+                $bookingStatus = normalizeWorkflowStatus((string)($av['status'] ?? ''));
                 $bookingPaymentStatus = strtolower(trim((string)($av['payment_status'] ?? '')));
+                // For an inspection-required service, 'accepted' covers two
+                // very different moments: right after Accept (price is only
+                // an estimate, technician hasn't visited yet) and again after
+                // the seeker agrees to the inspection report's final price
+                // (see the Inspection -> Agreement -> Working Date flow in
+                // CLAUDE.md). Only the second one should ever prompt payment
+                // — inspection_agreed_at is exactly the signal that tells
+                // them apart, already used the same way by the monitoring
+                // pill below. Non-inspection services are unaffected.
+                $priceIsFinal = empty($av['requires_inspection']) || !empty($av['inspection_agreed_at']);
                 $needsInitialPayment = (
                     in_array($bookingStatus, ['accepted'], true)
                     && $bookingPaymentStatus === 'unpaid'
+                    && $priceIsFinal
                 );
                 $needsRemainingPayment = (
                     $bookingStatus === 'waiting_remaining_payment'
@@ -1663,7 +1922,7 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                 $cardClass = 'request-card availed-card' . ($needsPayment || $awaitingLink ? ' needs-payment' : '');
                 $filterStatus = in_array($av['status'], ['cancelled','rejected'], true)
                     ? 'cancelled'
-                    : (in_array($bookingStatus, ['accepted', 'preparing', 'starting', 'ongoing', 'waiting_remaining_payment'], true)
+                    : (in_array($bookingStatus, ['accepted', 'preparing', 'starting', 'ongoing', 'waiting_remaining_payment', 'awaiting_agreement', 'revising'], true)
                         ? 'active'
                         : $av['status']);
             ?>
@@ -1722,6 +1981,18 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                     </a>
                 </div>
                 <?php endif; ?>
+                <?php if (!empty($av['requires_inspection']) && $bookingStatus === 'accepted' && empty($av['inspection_agreed_at'])): ?>
+                <div class="pay-strip" style="background:linear-gradient(135deg,#eff6ff,#f8fbff);border-color:#93c5fd;">
+                    <div class="pay-strip-icon" style="color:#1d4ed8;"><i class="fas fa-magnifying-glass"></i></div>
+                    <div class="pay-strip-body">
+                        <strong style="color:#1e3a8a;">Waiting for on-site inspection</strong>
+                        <span style="color:#1e40af;">
+                            A technician will visit on <?= date('F j, Y', strtotime($av['inspection_date'] ?? $av['preferred_date'])) ?> to inspect and set the final price.
+                            No payment or verification code yet — those unlock once you agree to the inspection report.
+                        </span>
+                    </div>
+                </div>
+                <?php endif; ?>
                 <?php if ($awaitingSeekerConfirmation): ?>
                 <div class="pay-strip" style="background:linear-gradient(135deg,#eef6ff,#f7fbff);border-color:#bfdbfe;">
                     <div class="pay-strip-icon" style="color:#1d4ed8;"><i class="fas fa-thumbs-up"></i></div>
@@ -1742,6 +2013,56 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                         class="btn-pay" style="background:#1d4ed8;box-shadow:0 4px 12px rgba(29,78,216,.3);white-space:nowrap;">
                         <i class="fas fa-qrcode"></i> Show QR
                     </button>
+                </div>
+                <?php endif; ?>
+                <?php if (!empty($av['requires_inspection']) && $bookingStatus === 'revising'): ?>
+                <div class="pay-strip" style="background:linear-gradient(135deg,#fff7ed,#fffaf0);border-color:#fdba74;">
+                    <div class="pay-strip-icon" style="color:#9a3412;"><i class="fas fa-rotate"></i></div>
+                    <div class="pay-strip-body">
+                        <strong style="color:#9a3412;">Provider is revising the inspection report</strong>
+                        <span style="color:#7c2d12;">You asked for changes<?= !empty($av['inspection_change_notes']) ? ': "' . htmlspecialchars(mb_strimwidth($av['inspection_change_notes'], 0, 120, '...')) . '"' : '' ?>. Waiting for a new report.</span>
+                    </div>
+                </div>
+                <?php endif; ?>
+                <?php if (!empty($av['requires_inspection']) && $bookingStatus === 'awaiting_agreement'): ?>
+                <div class="pay-strip" style="background:linear-gradient(135deg,#f5eef8,#faf5fc);border-color:#d7bde2;flex-direction:column;align-items:stretch;gap:12px;">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div class="pay-strip-icon" style="color:#4a235a;"><i class="fas fa-magnifying-glass"></i></div>
+                        <div class="pay-strip-body">
+                            <strong style="color:#4a235a;">Inspection report ready — please review</strong>
+                            <span style="color:#6c3483;">The technician inspected the site and proposed a working date and final price.</span>
+                        </div>
+                    </div>
+                    <?php if (!empty($av['inspection_report_image'])): ?>
+                    <img src="<?= htmlspecialchars(siteUrl($av['inspection_report_image'])) ?>" style="max-width:100%;max-height:260px;border-radius:10px;border:1px solid #e5e7eb;cursor:pointer;" onclick="this.style.maxHeight = this.style.maxHeight === 'none' ? '260px' : 'none';">
+                    <?php endif; ?>
+                    <?php if (!empty($av['inspection_report_notes'])): ?>
+                    <div style="font-size:13px;color:#334155;background:#fff;border:1px solid #e9d8f0;border-radius:8px;padding:10px 12px;"><?= nl2br(htmlspecialchars($av['inspection_report_notes'])) ?></div>
+                    <?php endif; ?>
+                    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;">
+                        <div><strong style="color:#0a6640;">Proposed Working Date:</strong> <?= !empty($av['inspection_proposed_working_date']) ? date('F j, Y', strtotime($av['inspection_proposed_working_date'])) : '-' ?></div>
+                        <div><strong style="color:#0a6640;">Final Price:</strong> PHP <?= number_format((float)($av['inspection_proposed_price'] ?? 0), 2) ?></div>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                        <form method="POST" style="margin:0;">
+                            <input type="hidden" name="agree_inspection" value="1">
+                            <input type="hidden" name="avail_id" value="<?= (int)$av['id'] ?>">
+                            <button type="submit" class="btn-pay" style="background:linear-gradient(135deg,#0a9648,#10b759);box-shadow:0 4px 12px rgba(10,150,72,.3);">
+                                <i class="fas fa-check-circle"></i> Agree &amp; Schedule
+                            </button>
+                        </form>
+                        <button type="button" class="btn-pay" style="background:#fff;color:#9a3412;border:1.5px solid #fdba74;box-shadow:none;" onclick="document.getElementById('changesForm<?= (int)$av['id'] ?>').style.display = document.getElementById('changesForm<?= (int)$av['id'] ?>').style.display === 'none' ? 'flex' : 'none';">
+                            <i class="fas fa-comment-dots"></i> Request Changes
+                        </button>
+                    </div>
+                    <form method="POST" id="changesForm<?= (int)$av['id'] ?>" style="display:none;flex-direction:column;gap:8px;margin:0;">
+                        <input type="hidden" name="request_inspection_changes" value="1">
+                        <input type="hidden" name="avail_id" value="<?= (int)$av['id'] ?>">
+                        <textarea name="inspection_change_notes" rows="3" required placeholder="What would you like changed? (price, scope, working date...)" style="width:100%;padding:10px 12px;border:1.5px solid #fdba74;border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box;"></textarea>
+                        <button type="submit" class="btn-pay" style="background:#9a3412;box-shadow:none;align-self:flex-start;">
+                            <i class="fas fa-paper-plane"></i> Send Request
+                        </button>
+                    </form>
                 </div>
                 <?php endif; ?>
                 <?php if ($hasPaymentRecord): ?>
@@ -1801,11 +2122,23 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                 $seekerVerified  = $isRealTimestamp($av['seeker_verified_at'] ?? null);
                 $providerVerified = $isRealTimestamp($av['provider_verified_at'] ?? null);
                 $isServiceDay    = !empty($av['preferred_date']) && $av['preferred_date'] === date('Y-m-d');
+                // Same "paid or at least a downpayment" bar $canEmergencyNow
+                // uses further down — codes are generated right at Accept,
+                // long before payment (and, for an inspection-required
+                // service, long before the final price even exists), so the
+                // whole verification widget stays hidden until payment is
+                // actually made. Fixed-price bookings pay right after Accept
+                // as always; inspection-required ones now correctly can't
+                // reach this widget until the seeker has agreed to the final
+                // price and paid it (payment-redirect.php already refuses to
+                // create a checkout before that point either way).
+                $isPaidEnough    = in_array($av['payment_status'], ['paid','partial'], true);
                 $canVerify       = $hasSeekerCode && $hasProviderCode && !$dualDone
                                    && in_array($av['status'], ['accepted','preparing','starting'])
+                                   && $isPaidEnough
                                    && ($isServiceDay || $providerVerified);
                 ?>
-                <?php if ($hasSeekerCode || $hasProviderCode): ?>
+                <?php if (($hasSeekerCode || $hasProviderCode) && $isPaidEnough): ?>
                 <!-- -- Dual Control Number Widget -- -->
                 <div class="booking-ctrl-strip" id="dualWidget-<?= $av['id'] ?>">
                     <div class="booking-ctrl-strip-icon">
@@ -1989,7 +2322,7 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                     <div class="monitoring-meta">
                         <span class="monitoring-pill"><i class="fas fa-clock"></i> Last update: <?= htmlspecialchars($lastUpdatedLabel) ?></span>
                         <span class="monitoring-pill"><i class="fas fa-wallet"></i> Payment: <?= htmlspecialchars(ucfirst((string)$av['payment_status'])) ?></span>
-                        <span class="monitoring-pill"><i class="fas fa-calendar-check"></i> Schedule: <?= date('M j', strtotime($av['preferred_date'])) ?> at <?= date('g:i A', strtotime($av['preferred_time'])) ?></span>
+                        <span class="monitoring-pill"><i class="fas fa-calendar-check"></i> <?= (!empty($av['requires_inspection']) && empty($av['inspection_agreed_at'])) ? 'Inspection' : 'Schedule' ?>: <?= date('M j', strtotime($av['preferred_date'])) ?> at <?= date('g:i A', strtotime($av['preferred_time'])) ?></span>
                     </div>
                     <div class="monitoring-timeline">
                         <?php if (!empty($monitoringRowsDisplay)): ?>
@@ -2075,6 +2408,11 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                     <a href="<?php echo appUrl('provider-details.php'); ?>?id=<?= $av['provider_id'] ?>" class="btn-outline">
                         <i class="fas fa-building"></i> View Provider
                     </a>
+                    <?php if (!in_array($bookingStatus, ['cancelled', 'rejected'], true)): ?>
+                    <a href="<?php echo appUrl('messages.php'); ?>?booking=<?= (int)$av['id'] ?>" class="btn-outline">
+                        <i class="fas fa-comment-dots"></i> Message<?= $bookingStatus === 'completed' ? ' (Closed)' : '' ?>
+                    </a>
+                    <?php endif; ?>
                     <?php if ($bookingStatus === 'starting' && !empty($av['qr_token'])): ?>
                     <button type="button" class="btn-primary"
                             onclick="openQrModal(<?= (int)$av['id'] ?>, '<?= htmlspecialchars(addslashes($av['qr_token'])) ?>')">
@@ -2109,7 +2447,7 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                         onclick="openSeekerVerify(<?= $av['id'] ?>, '<?= htmlspecialchars(addslashes($av['company_name'])) ?>')">
                         <i class="fas fa-shield-halved"></i> Enter Provider Code
                     </button>
-                    <?php elseif (!$dualDone && !$seekerVerified && $hasProviderCode && in_array($av['status'], ['accepted','preparing','starting']) && !$isServiceDay): ?>
+                    <?php elseif (!$dualDone && !$seekerVerified && $hasProviderCode && $isPaidEnough && in_array($av['status'], ['accepted','preparing','starting']) && !$isServiceDay): ?>
                     <span class="btn-outline" style="opacity:.75;cursor:default;">
                         <i class="fas fa-calendar-day"></i> Verify on Service Day
                     </span>
@@ -2329,7 +2667,7 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                             <i class="fas fa-eye"></i> View Booking
                         </a>
                         <?php elseif ($isMessageNotif): ?>
-                        <a href="messages.php<?= !empty($n['provider_user_id']) ? '?to=' . (int)$n['provider_user_id'] : '' ?>" class="notif-pay-btn" style="background:#7c3aed;">
+                        <a href="<?php echo appUrl('messages.php'); ?><?= !empty($n['avail_id']) ? '?booking=' . (int)$n['avail_id'] : '' ?>" class="notif-pay-btn" style="background:#7c3aed;">
                             <i class="fas fa-comments"></i> Open Messages
                         </a>
                         <?php endif; ?>
@@ -2448,7 +2786,7 @@ else echo '<header style="background:#007bff;color:white;padding:1rem;"><div cla
                         <i class="fas fa-eye"></i> View Service
                     </a>
                     <?php endif; ?>
-                    <a href="<?php echo appUrl('messages.php'); ?>?provider_id=<?= $request['provider_id'] ?>" class="btn-outline">
+                    <a href="<?php echo appUrl('messages.php'); ?>" class="btn-outline">
                         <i class="fas fa-envelope"></i> Message Provider
                     </a>
                     <?php if ($request['status'] == 'pending'): ?>

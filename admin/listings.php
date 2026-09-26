@@ -13,7 +13,7 @@ $where = ["sl.status = 'active'"];
 $params = [];
 
 if (isset($_GET['search']) && !empty($_GET['search'])) {
-    $where[] = "(sl.title LIKE :search OR sl.description LIKE :search OR p.company_name LIKE :search)";
+    $where[] = "(sl.service_name LIKE :search OR sl.description LIKE :search OR p.company_name LIKE :search)";
     $params[':search'] = '%' . $_GET['search'] . '%';
 }
 
@@ -30,8 +30,8 @@ if (isset($_GET['location']) && !empty($_GET['location'])) {
 $where_clause = implode(' AND ', $where);
 
 // Get total count for pagination
-$countQuery = "SELECT COUNT(*) as total FROM service_listings sl 
-               JOIN providers p ON sl.provider_id = p.id 
+$countQuery = "SELECT COUNT(*) as total FROM services sl
+               JOIN providers p ON sl.provider_id = p.id
                JOIN service_categories sc ON sl.category_id = sc.id
                WHERE $where_clause";
 $countStmt = $db->prepare($countQuery);
@@ -48,13 +48,13 @@ $totalPages = ceil($totalCount / $perPage);
 $offset = ($page - 1) * $perPage;
 
 // Get services with pagination
-$query = "SELECT sl.*, p.company_name, p.logo_url, p.city, p.state, sc.name as category_name,
+$query = "SELECT sl.*, sl.service_name AS title, p.company_name, p.logo_url, p.city, p.state, sc.name as category_name,
           (SELECT AVG(overall_rating) FROM reviews WHERE provider_id = p.id) as avg_rating,
           (SELECT COUNT(*) FROM reviews WHERE provider_id = p.id) as review_count
-          FROM service_listings sl 
-          JOIN providers p ON sl.provider_id = p.id 
+          FROM services sl
+          JOIN providers p ON sl.provider_id = p.id
           JOIN service_categories sc ON sl.category_id = sc.id
-          WHERE $where_clause 
+          WHERE $where_clause
           ORDER BY sl.created_at DESC
           LIMIT :limit OFFSET :offset";
 

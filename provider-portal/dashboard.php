@@ -24,6 +24,20 @@ function safeAll($db, $sql, $params = []) {
     try { $s=$db->prepare($sql);$s->execute($params);return $s->fetchAll(PDO::FETCH_ASSOC); } catch(Exception $e){return [];}
 }
 
+// Best-effort, lazy-triggered reminder: whoever loads a provider-portal
+// dashboard today (owner, staff, or the employee) fires the check for any
+// of this provider's bookings scheduled today with an assigned technician.
+require_once appPath('includes/service_reminder_helper.php');
+sendDueServiceReminders($db, $pid);
+
+// ── Non-promoted employee accounts get their own dashboard: only what's
+// theirs (their attendance, their leave, their assigned services calendar)
+// — never company-wide finance/HR data. ──
+if ((($_SESSION['portal_account_type'] ?? 'staff') === 'employee')) {
+    require_once 'includes/employee-dashboard.php';
+    exit;
+}
+
 $total_emp     = safeCount($db, "SELECT COUNT(*) FROM employees WHERE provider_id=:p AND status='active'", [':p'=>$pid]);
 $pending_leave = safeCount($db, "SELECT COUNT(*) FROM leave_requests WHERE provider_id=:p AND status='pending'", [':p'=>$pid]);
 $total_income  = safeSum($db,   "SELECT COALESCE(SUM(amount),0) FROM income_records WHERE provider_id=:p AND YEAR(date)=YEAR(NOW())", [':p'=>$pid]);
@@ -181,8 +195,8 @@ tbody tr:hover{background:#fafbfc}
         </a>
         <?php endif; ?>
         <?php if ($can_manage): ?>
-        <a href="staff.php" class="dept-card" style="background:linear-gradient(135deg,#3498db,#2980b9)">
-            <i class="fas fa-user-shield"></i><h3>Staff Management</h3><p>Add and manage HR/Finance staff</p>
+        <a href="employees.php" class="dept-card" style="background:linear-gradient(135deg,#3498db,#2980b9)">
+            <i class="fas fa-id-badge"></i><h3>Employees</h3><p>Add employees and promote to HR/Finance/CRM manager</p>
         </a>
         <a href="schedules.php" class="dept-card" style="background:linear-gradient(135deg,#e67e22,#d35400)">
             <i class="fas fa-calendar-alt"></i><h3>Schedules</h3><p>Manage work schedules and events</p>

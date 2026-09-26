@@ -35,17 +35,19 @@ if (isset($_SESSION['admin_id']) && ($_SESSION['admin_logged_in'] ?? false)) {
 }
 
 if (isset($_SESSION['portal_staff_id'])) {
-    header("Location: " . appUrl('provider-portal/dashboard.php'));
+    header("Location: " . appUrl(
+        !empty($_SESSION['portal_must_change']) ? 'provider-portal/change-password.php' : 'provider-portal/dashboard.php'
+    ));
     exit();
 }
 
 if (isset($_SESSION['user_id'])) {
     if ($_SESSION['user_type'] == 'seeker' && $requested_redirect !== '') {
-        header("Location: " . $requested_redirect);
+        header("Location: " . appUrl($requested_redirect));
         exit();
     } elseif ($_SESSION['user_type'] == 'provider') {
         if ($requested_redirect !== '') {
-            header("Location: " . $requested_redirect);
+            header("Location: " . appUrl($requested_redirect));
         } else {
             header("Location: " . appUrl('providers-dashboard.php'));
         }
@@ -111,14 +113,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         try {
                             $checkTable = $db->query("SHOW TABLES LIKE 'admin_logs'");
                             if ($checkTable->rowCount() > 0) {
+                                // admin_logs has no user_agent column — folded into
+                                // details instead of being silently dropped.
                                 $logStmt = $db->prepare(
-                                    "INSERT INTO admin_logs (admin_id, action, details, ip_address, user_agent, created_at)
-                                     VALUES (:admin_id, 'LOGIN', 'Admin logged in via shared login page', :ip_address, :user_agent, NOW())"
+                                    "INSERT INTO admin_logs (admin_id, action, details, ip_address, created_at)
+                                     VALUES (:admin_id, 'LOGIN', :details, :ip_address, NOW())"
                                 );
                                 $logStmt->execute([
                                     ':admin_id' => $admin['id'],
-                                    ':ip_address' => $_SERVER['REMOTE_ADDR'] ?? '',
-                                    ':user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? ''
+                                    ':details' => 'Admin logged in via shared login page — UA: ' . ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                                    ':ip_address' => $_SERVER['REMOTE_ADDR'] ?? ''
                                 ]);
                             }
                         } catch (Exception $e) {
@@ -172,6 +176,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     if ($staffPasswordValid) {
                         $must_change = $staffUsedTemp ? 1 : (int)($staff['must_change_password'] ?? 0);
 
+                        // A promoted staff member may also have a matching HR
+                        // employee record (e.g. auto-created by staff.php, or
+                        // linked by email) — carry that over so they can also
+                        // use employee self-service features (timekeeping,
+                        // payslips) under their own staff login.
+                        $linkedEmp = null;
+                        try {
+                            $linkStmt = $db->prepare(
+                                "SELECT id, staff_type FROM employees WHERE provider_id = :pid AND email = :email LIMIT 1"
+                            );
+                            $linkStmt->execute([':pid' => (int)$staff['provider_id'], ':email' => $staff['email']]);
+                            $linkedEmp = $linkStmt->fetch(PDO::FETCH_ASSOC);
+                        } catch (Exception $e) {}
+
                         $_SESSION['portal_staff_id']     = $staff['id'];
                         $_SESSION['portal_provider_id']  = (int)$staff['provider_id'];
                         $_SESSION['portal_role']         = $staff['role'];
@@ -180,11 +198,71 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $_SESSION['portal_company']      = $staff['company_name'];
                         $_SESSION['portal_must_change']  = $must_change;
                         $_SESSION['portal_account_type'] = 'staff';
-                        $_SESSION['portal_employee_id']  = 0;
+                        $_SESSION['portal_employee_id']  = $linkedEmp ? (int)$linkedEmp['id'] : 0;
+                        $_SESSION['portal_staff_type']   = $linkedEmp['staff_type'] ?? 'office';
 
                         if ($staffUsedTemp && !$staff['must_change_password']) {
                             $db->prepare("UPDATE provider_staff SET must_change_password=1 WHERE id=:id")
                                ->execute([':id' => $staff['id']]);
+                        }
+
+                        $portalDest = $must_change
+                            ? 'provider-portal/change-password.php'
+                            : 'provider-portal/dashboard.php';
+                        header('Location: ' . appUrl($portalDest));
+                        exit();
+                    }
+                }
+
+                // Employee self-service login (not promoted to portal staff) —
+                // accepts email or employee_id code (e.g. "EMP-XXX-1234").
+                // Reuses the provider-portal session namespace (portal_*):
+                // provider-portal/timekeeping.php, change-password.php and
+                // crm-requests.php already branch on portal_account_type ===
+                // 'employee' / portal_employee_id — this just completes the
+                // login path those were built to expect.
+                $empStmt = $db->prepare(
+                    "SELECT e.*, p.company_name
+                     FROM employees e
+                     JOIN providers p ON p.id = e.provider_id
+                     WHERE (e.email = :identifier OR e.employee_id = :identifier)
+                       AND e.status = 'active'
+                     LIMIT 1"
+                );
+                $empStmt->execute([':identifier' => $identifier]);
+                $emp = $empStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($emp) {
+                    $empPasswordValid = false;
+                    $empUsedTemp      = false;
+
+                    if (!empty($emp['password_hash']) && password_verify($password, $emp['password_hash'])) {
+                        $empPasswordValid = true;
+                    } elseif (!empty($emp['temp_password']) && hash_equals((string)$emp['temp_password'], $password)) {
+                        $empPasswordValid = true;
+                        $empUsedTemp      = true;
+                    }
+
+                    if ($empPasswordValid) {
+                        $must_change = $empUsedTemp ? 1 : (int)($emp['must_change_pwd'] ?? 0);
+
+                        // portal_staff_id has no real provider_staff row for a
+                        // plain employee — set to 0 as a "logged in, but not
+                        // staff" marker (portal-auth.php only checks isset()).
+                        $_SESSION['portal_staff_id']     = 0;
+                        $_SESSION['portal_provider_id']  = (int)$emp['provider_id'];
+                        $_SESSION['portal_role']         = 'employee';
+                        $_SESSION['portal_dept']         = $emp['department'];
+                        $_SESSION['portal_full_name']    = trim($emp['first_name'] . ' ' . $emp['last_name']);
+                        $_SESSION['portal_company']      = $emp['company_name'];
+                        $_SESSION['portal_must_change']  = $must_change;
+                        $_SESSION['portal_account_type'] = 'employee';
+                        $_SESSION['portal_employee_id']  = (int)$emp['id'];
+                        $_SESSION['portal_staff_type']   = $emp['staff_type'] ?? 'office';
+
+                        if ($empUsedTemp && !$emp['must_change_pwd']) {
+                            $db->prepare("UPDATE employees SET must_change_pwd=1 WHERE id=:id")
+                               ->execute([':id' => $emp['id']]);
                         }
 
                         $portalDest = $must_change
@@ -244,7 +322,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                     error_log("Provider details fetch error: " . $ex->getMessage());
                                 }
                                 if ($requested_redirect !== '') {
-                                    header("Location: " . $requested_redirect);
+                                    header("Location: " . appUrl($requested_redirect));
                                 } else {
                                     header("Location: " . appUrl('providers-dashboard.php'));
                                 }
@@ -259,7 +337,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                             } else {
                                 if ($requested_redirect !== '') {
-                                    header("Location: " . $requested_redirect);
+                                    header("Location: " . appUrl($requested_redirect));
                                 } else {
                                     header("Location: " . appUrl('index.php'));
                                 }

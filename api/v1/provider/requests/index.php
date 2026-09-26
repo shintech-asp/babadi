@@ -24,16 +24,21 @@ $countStmt = db()->prepare($countSql);
 $countStmt->execute($params);
 $total = (int) $countStmt->fetchColumn();
 
+// service_listings was merged into services (see CLAUDE.md's "Recent Work
+// Log") — this join previously only resolved bookings whose service_id
+// pointed at service_listings (mobile-originated), silently returning NULL
+// listing_title/price for every web-originated booking. Now resolves both.
 $sql = "SELECT av.*,
                u.first_name AS seeker_first,
                u.last_name  AS seeker_last,
                u.phone      AS seeker_phone,
                u.email      AS seeker_email,
-               sl.title     AS listing_title,
-               sl.price
+               sl.service_name AS listing_title,
+               sl.price,
+               COALESCE(sl.requires_inspection, 0) AS requires_inspection
         FROM availed_services av
         JOIN users u ON u.id = COALESCE(av.seeker_user_id, av.user_id)
-        LEFT JOIN service_listings sl ON sl.id = av.listing_id
+        LEFT JOIN services sl ON sl.id = av.service_id
         WHERE {$where}
         ORDER BY av.created_at DESC
         LIMIT :limit OFFSET :offset";

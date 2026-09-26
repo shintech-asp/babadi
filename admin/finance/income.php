@@ -18,8 +18,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'add') {
     $ref    = 'INC-' . strtoupper(substr(uniqid(),0,8));
     if (!$desc || $amount <= 0) { $error = 'Description and amount are required.'; }
     else {
-        $db->prepare("INSERT INTO income_records (reference_no,description,amount,date,category,payment_method,notes,recorded_by) VALUES(:r,:d,:a,:dt,:c,:m,:n,:by)")
-        ->execute([':r'=>$ref,':d'=>$desc,':a'=>$amount,':dt'=>$date,':c'=>$cat,':m'=>$method,':n'=>$notes,':by'=>$_SESSION['admin_id']]);
+        // income_records' real columns are income_date/reference_number/income_type
+        // (not date/reference_no/category), and it has no notes or recorded_by
+        // column at all — notes are folded into description instead of being
+        // silently dropped, and recorded_by is left out (nothing reads it).
+        $descWithNotes = $notes !== '' ? ($desc . ' — ' . $notes) : $desc;
+        $db->prepare("INSERT INTO income_records (reference_number,description,amount,income_date,income_type,payment_method) VALUES(:r,:d,:a,:dt,:c,:m)")
+        ->execute([':r'=>$ref,':d'=>$descWithNotes,':a'=>$amount,':dt'=>$date,':c'=>$cat,':m'=>$method]);
         $success = "Income record added. Ref: $ref";
     }
 }
@@ -29,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action']??'') === 'delete'
 }
 
 $month  = $_GET['month'] ?? date('Y-m');
-$records = $db->prepare("SELECT * FROM income_records WHERE DATE_FORMAT(date,'%Y-%m')=:m ORDER BY date DESC");
+$records = $db->prepare("SELECT *, reference_number AS reference_no, income_date AS date, income_type AS category FROM income_records WHERE DATE_FORMAT(income_date,'%Y-%m')=:m ORDER BY income_date DESC");
 $records->execute([':m'=>$month]); $records = $records->fetchAll(PDO::FETCH_ASSOC);
 $total_month = array_sum(array_column($records,'amount'));
 

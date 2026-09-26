@@ -11,7 +11,7 @@
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 require_once 'includes/ControlNumberService.php';
 
-allow('GET');
+allow('GET', 'POST');
 
 $user       = require_seeker();
 $booking_id = (int)inp('booking_id');
@@ -42,7 +42,7 @@ $ptStmt->execute([':bid' => $booking_id, ':uid' => $uid]);
 $ptData = $ptStmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$ptData || empty($ptData['transaction_id'])) {
-    ok(['verified' => false, 'booking' => ['id' => $booking_id, 'status' => $booking['status']]]);
+    ok(['data' => ['verified' => false, 'booking' => ['id' => $booking_id, 'status' => $booking['status']]]]);
 }
 
 // 3. Verify payment status with PayMongo
@@ -70,7 +70,7 @@ $pmStatus = $pmData['data']['attributes']['payment_intent']['attributes']['statu
 $verified = in_array($pmStatus, ['succeeded', 'paid', 'active'], true);
 
 if (!$verified) {
-    ok(['verified' => false, 'booking' => ['id' => $booking_id, 'status' => $booking['status']]]);
+    ok(['data' => ['verified' => false, 'booking' => ['id' => $booking_id, 'status' => $booking['status']]]]);
 }
 
 // 4. Update booking + transaction records (idempotent — guards prevent double-write)
@@ -129,14 +129,16 @@ $bStmt->execute([':bid' => $booking_id, ':uid' => $uid, ':uid2' => $uid]);
 $fresh = $bStmt->fetch(PDO::FETCH_ASSOC);
 
 ok([
-    'verified' => true,
-    'booking'  => [
-        'id'                      => (int)$fresh['id'],
-        'status'                  => $fresh['status'],
-        'payment_status'          => $fresh['payment_status'],
-        'paid_amount'             => (float)$fresh['paid_amount'],
-        // Cross-share: seeker keeps provider_control_number to enter on service day
-        'control_number'          => $fresh['control_number'],           // PCF-… seeker's own code
-        'provider_control_number' => $fresh['provider_control_number'],  // PCP-… seeker must enter this
+    'data' => [
+        'verified' => true,
+        'booking'  => [
+            'id'                      => (int)$fresh['id'],
+            'status'                  => $fresh['status'],
+            'payment_status'          => $fresh['payment_status'],
+            'paid_amount'             => (float)$fresh['paid_amount'],
+            // Cross-share: seeker keeps provider_control_number to enter on service day
+            'control_number'          => $fresh['control_number'],           // PCF-… seeker's own code
+            'provider_control_number' => $fresh['provider_control_number'],  // PCP-… seeker must enter this
+        ],
     ],
 ]);

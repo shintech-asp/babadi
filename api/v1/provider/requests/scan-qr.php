@@ -17,4 +17,4 @@ if (!$result['success']) {
     fail($result['message'], 422);
 }
 
-ok(['message' => $result['message']]);
+ok(['data' => ['message' => $result['message']]]);

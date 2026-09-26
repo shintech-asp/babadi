@@ -132,8 +132,8 @@ $emp_filter = (int)($_GET['emp']??0);
 $where = "a.provider_id=:p AND a.date=:d"; $params=[':p'=>$pid,':d'=>$date_filter];
 if ($emp_filter) { $where .= " AND a.employee_id=:e"; $params[':e']=$emp_filter; }
 
-$records = safeAll($db,"SELECT a.*, CONCAT(e.first_name,' ',e.last_name) AS emp_name, e.position, e.department, e.employee_code FROM attendance a JOIN employees e ON a.employee_id=e.id WHERE $where ORDER BY a.time_in DESC",$params);
-$employees = safeAll($db,"SELECT id,first_name,last_name,employee_code FROM employees WHERE provider_id=:p AND status='active' ORDER BY first_name",[':p'=>$pid]);
+$records = safeAll($db,"SELECT a.*, CONCAT(e.first_name,' ',e.last_name) AS emp_name, e.position, e.department, e.employee_id AS employee_code FROM attendance a JOIN employees e ON a.employee_id=e.id WHERE $where ORDER BY a.time_in DESC",$params);
+$employees = safeAll($db,"SELECT id,first_name,last_name,employee_id AS employee_code FROM employees WHERE provider_id=:p AND status='active' ORDER BY first_name",[':p'=>$pid]);
 
 $total = count($records);
 $present = count(array_filter($records, fn($r)=>$r['status']==='present'));

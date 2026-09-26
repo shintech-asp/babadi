@@ -15,22 +15,8 @@ require_once 'includes/portal-tier.php';
 function safeRow($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetch(PDO::FETCH_ASSOC);}catch(Exception $e){return null;}}
 function safeAll($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetchAll(PDO::FETCH_ASSOC);}catch(Exception $e){return[];}}
 
-// ── Helper: get/set portal settings (stored in admin_settings as provider_{pid}_{key}) ──
-function getSetting($db, $pid, $key, $default='') {
-    try {
-        $s = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key=:k LIMIT 1");
-        $s->execute([':k' => "portal_{$pid}_{$key}"]);
-        $r = $s->fetch(PDO::FETCH_ASSOC);
-        return $r ? $r['setting_value'] : $default;
-    } catch(Exception $e){ return $default; }
-}
-function setSetting($db, $pid, $key, $value) {
-    try {
-        $db->prepare("INSERT INTO admin_settings (setting_key, setting_value) VALUES (:k,:v)
-                      ON DUPLICATE KEY UPDATE setting_value=:v")
-           ->execute([':k'=>"portal_{$pid}_{$key}", ':v'=>$value]);
-    } catch(Exception $e){}
-}
+require_once 'includes/portal-settings.php';
+require_once 'includes/leave_balance_helper.php';
 
 $success = $error = '';
 $tab = $_GET['tab'] ?? 'company';
@@ -82,9 +68,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error && ($_POST['form'] ?? '') =
     $tab = 'hr';
 }
 
+// ── POST: Per-Employee Leave Override ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error && ($_POST['form'] ?? '') === 'leave_override') {
+    $overrideEmpId = (int)($_POST['override_employee_id'] ?? 0);
+    $overrideOwner = safeRow($db, "SELECT id FROM employees WHERE id=:id AND provider_id=:p", [':id'=>$overrideEmpId, ':p'=>$pid]);
+    if (!$overrideEmpId || !$overrideOwner) {
+        $error = 'Select an employee to apply the override to.';
+    } else {
+        foreach (['annual','sick','personal','maternity','paternity'] as $lt) {
+            $val = $_POST[$lt . '_override_days'] ?? '';
+            if ($val !== '') {
+                setLeaveBalanceOverride($db, $overrideEmpId, $lt, date('Y'), (float)$val);
+            }
+        }
+        $success = 'Leave override saved for this employee.';
+    }
+    $tab = 'hr';
+}
+
 // ── POST: Finance Settings ──
+// SSS/PhilHealth/Pag-IBIG are no longer here — they're government-mandated
+// contributions with one fixed schedule for every Philippine employer, not
+// a per-provider choice, so they're computed by the shared
+// computeStatutoryDeductions() in includes/payroll_helper.php instead of
+// being editable per provider.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error && ($_POST['form'] ?? '') === 'finance') {
-    $keys = ['sss_rate','philhealth_rate','pagibig_rate','pagibig_cap','overtime_rate','night_diff_rate'];
+    $keys = ['overtime_rate','night_diff_rate','working_days_per_month'];
     foreach ($keys as $k) setSetting($db, $pid, $k, trim($_POST[$k] ?? ''));
     $success = 'Finance settings saved.';
     $tab = 'finance';
@@ -144,13 +153,22 @@ $leave_days = [
 $cutoff1 = getSetting($db,$pid,'payroll_cutoff_1','15');
 $cutoff2 = getSetting($db,$pid,'payroll_cutoff_2','30');
 
+// Per-employee leave overrides — active employees + this year's balance
+// (falls back to the company default above until HR sets an override).
+$leaveOverrideYear = date('Y');
+$leaveOverrideEmployees = safeAll($db, "SELECT id, first_name, last_name FROM employees WHERE provider_id=:p AND status='active' ORDER BY first_name", [':p'=>$pid]);
+$leaveOverrideMap = [];
+foreach ($leaveOverrideEmployees as $le) {
+    foreach (array_keys($leave_days) as $lt) {
+        $bal = getLeaveBalance($db, $pid, (int)$le['id'], $lt, $leaveOverrideYear);
+        $leaveOverrideMap[$le['id']][$lt] = ['total' => $bal['total'], 'has_override' => $bal['has_override']];
+    }
+}
+
 // Finance settings
-$sss_rate       = getSetting($db,$pid,'sss_rate','4.5');
-$ph_rate        = getSetting($db,$pid,'philhealth_rate','2.0');
-$pagibig_rate   = getSetting($db,$pid,'pagibig_rate','2.0');
-$pagibig_cap    = getSetting($db,$pid,'pagibig_cap','5000');
 $ot_rate        = getSetting($db,$pid,'overtime_rate','1.25');
 $nd_rate        = getSetting($db,$pid,'night_diff_rate','0.10');
+$working_days_per_month = getSetting($db,$pid,'working_days_per_month','22');
 
 // Notification settings
 $notif = [
@@ -619,6 +637,66 @@ input:checked + .toggle-slider::before{transform:translateX(20px)}
 </div>
 </form>
 
+<div class="settings-card">
+    <div class="settings-card-header">
+        <div class="header-icon" style="background:linear-gradient(135deg,#6366f1,#4f46e5)"><i class="fas fa-user-check"></i></div>
+        <div><h2>Per-Employee Leave Override</h2><p>Give one specific employee a different leave allowance than the company default above</p></div>
+    </div>
+    <div class="settings-card-body">
+        <form method="POST" id="leaveOverrideForm">
+        <input type="hidden" name="form" value="leave_override">
+        <input type="hidden" name="csrf_token" value="<?= generateCSRFToken() ?>">
+        <div class="form-group" style="max-width:320px;margin-bottom:16px">
+            <label class="form-label">Apply To</label>
+            <select name="override_employee_id" id="overrideEmpSelect" class="form-control" onchange="syncLeaveOverrideFields()" required>
+                <option value="">— Select an employee —</option>
+                <?php foreach ($leaveOverrideEmployees as $le): ?>
+                <option value="<?= (int)$le['id'] ?>"><?= htmlspecialchars($le['first_name'].' '.$le['last_name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <span class="form-hint">This override applies only to the selected employee — everyone else keeps using the company default.</span>
+        </div>
+        <?php if (empty($leaveOverrideEmployees)): ?>
+        <p class="form-hint">No active employees yet.</p>
+        <?php else: ?>
+        <div class="form-grid-3">
+            <?php foreach (['annual'=>'Annual Leave','sick'=>'Sick Leave','personal'=>'Personal Leave','maternity'=>'Maternity Leave','paternity'=>'Paternity Leave'] as $k=>$lbl): ?>
+            <div class="form-group">
+                <label class="form-label"><?= $lbl ?></label>
+                <div class="input-group">
+                    <input type="number" name="<?= $k ?>_override_days" id="override_<?= $k ?>" class="form-control right" min="0" max="365" disabled>
+                    <span class="input-addon input-addon-right">days</span>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <button type="submit" class="btn-save" id="overrideSaveBtn" disabled><i class="fas fa-save"></i> Save Override</button>
+        <?php endif; ?>
+        </form>
+    </div>
+</div>
+
+<script>
+const LEAVE_OVERRIDE_MAP = <?= json_encode($leaveOverrideMap) ?>;
+function syncLeaveOverrideFields() {
+    const empId = document.getElementById('overrideEmpSelect').value;
+    const types = ['annual','sick','personal','maternity','paternity'];
+    const saveBtn = document.getElementById('overrideSaveBtn');
+    types.forEach(function (t) {
+        const input = document.getElementById('override_' + t);
+        if (!input) return;
+        if (empId && LEAVE_OVERRIDE_MAP[empId]) {
+            input.disabled = false;
+            input.value = LEAVE_OVERRIDE_MAP[empId][t].total;
+        } else {
+            input.disabled = true;
+            input.value = '';
+        }
+    });
+    if (saveBtn) saveBtn.disabled = !empId;
+}
+</script>
+
 <!-- ══════════ FINANCE TAB ══════════ -->
 <?php elseif ($tab === 'finance'): ?>
 <form method="POST">
@@ -628,41 +706,40 @@ input:checked + .toggle-slider::before{transform:translateX(20px)}
 <div class="settings-card">
     <div class="settings-card-header">
         <div class="header-icon" style="background:linear-gradient(135deg,#27ae60,#16a085)"><i class="fas fa-percent"></i></div>
-        <div><h2>Government Deduction Rates</h2><p>Employee contribution rates applied during payroll computation</p></div>
+        <div><h2>Government Deduction Rates</h2><p>Fixed by law — not editable per provider</p></div>
     </div>
     <div class="settings-card-body">
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 16px;font-size:12.5px;color:#276749;margin-bottom:16px;line-height:1.6">
+            <i class="fas fa-circle-info" style="margin-right:6px"></i>
+            SSS, PhilHealth, and Pag-IBIG are government-mandated contributions — every employer in the Philippines follows the same schedule, so these apply automatically during payroll generation and can't be changed per company.
+        </div>
         <div class="form-grid">
             <div class="form-group">
-                <label class="form-label">SSS Employee Rate</label>
-                <div class="input-group">
-                    <input type="number" name="sss_rate" class="form-control right" value="<?= $sss_rate ?>" min="0" max="100" step="0.01">
-                    <span class="input-addon input-addon-right">%</span>
-                </div>
-                <span class="form-hint">Standard: 4.5%</span>
+                <label class="form-label">SSS Employee Share</label>
+                <div class="form-control" style="background:#f8fafc;color:#475569">4.5% of Monthly Salary Credit</div>
+                <span class="form-hint">MSC floor ₱4,000, ceiling ₱30,000 (min ₱180 – max ₱1,350/month)</span>
             </div>
             <div class="form-group">
-                <label class="form-label">PhilHealth Employee Rate</label>
-                <div class="input-group">
-                    <input type="number" name="philhealth_rate" class="form-control right" value="<?= $ph_rate ?>" min="0" max="100" step="0.01">
-                    <span class="input-addon input-addon-right">%</span>
-                </div>
-                <span class="form-hint">Standard: 2%</span>
+                <label class="form-label">PhilHealth Employee Share</label>
+                <div class="form-control" style="background:#f8fafc;color:#475569">2.5% of monthly salary</div>
+                <span class="form-hint">Salary floor ₱10,000, ceiling ₱100,000 (min ₱250 – max ₱2,500/month)</span>
             </div>
             <div class="form-group">
-                <label class="form-label">Pag-IBIG Rate</label>
-                <div class="input-group">
-                    <input type="number" name="pagibig_rate" class="form-control right" value="<?= $pagibig_rate ?>" min="0" max="100" step="0.01">
-                    <span class="input-addon input-addon-right">%</span>
-                </div>
-                <span class="form-hint">Standard: 2%</span>
+                <label class="form-label">Pag-IBIG Employee Share</label>
+                <div class="form-control" style="background:#f8fafc;color:#475569">1% (≤ ₱1,500 salary) or 2% (above)</div>
+                <span class="form-hint">Computed on salary capped at ₱10,000 (max ₱200/month)</span>
             </div>
+        </div>
+
+        <div class="section-divider"><i class="fas fa-calendar-day"></i> Attendance-Based Pay</div>
+        <div class="form-grid">
             <div class="form-group">
-                <label class="form-label">Pag-IBIG Monthly Cap</label>
+                <label class="form-label">Working Days Per Month</label>
                 <div class="input-group">
-                    <span class="input-addon">₱</span>
-                    <input type="number" name="pagibig_cap" class="form-control" value="<?= $pagibig_cap ?>" min="0">
+                    <input type="number" name="working_days_per_month" class="form-control right" value="<?= $working_days_per_month ?>" min="1" max="31" step="1">
+                    <span class="input-addon input-addon-right">days</span>
                 </div>
-                <span class="form-hint">Max deduction per month: ₱5,000</span>
+                <span class="form-hint">Used to compute daily/hourly rate for absence, late, and overtime deductions. Standard: 22</span>
             </div>
         </div>
 

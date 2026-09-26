@@ -28,9 +28,11 @@ $current_status = $row->fetchColumn();
 $dual = $result['state'] === 'dual_verified';
 
 ok([
-    'message'      => $dual
-        ? 'Service started — both parties verified'
-        : 'Verification recorded, waiting for client to verify their side',
-    'dual_verified' => $dual,
-    'status'        => $current_status,
+    'data' => [
+        'message'      => $dual
+            ? 'Service started — both parties verified'
+            : 'Verification recorded, waiting for client to verify their side',
+        'dual_verified' => $dual,
+        'status'        => $current_status,
+    ],
 ]);

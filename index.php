@@ -24,12 +24,12 @@ try {
 
 // â”€â”€ Get featured service listings â”€â”€
 // Uses service_reviews (not the non-existent `reviews` table)
-$query = "SELECT sl.*, p.company_name, p.logo_url, sc.name as category_name,
+$query = "SELECT sl.*, sl.service_name AS title, p.company_name, p.logo_url, sc.name as category_name,
           (SELECT ROUND(AVG(r.rating),1) FROM service_reviews r WHERE r.provider_id = p.id) as avg_rating,
           (SELECT COUNT(*)               FROM service_reviews r WHERE r.provider_id = p.id) as review_count
-          FROM service_listings sl
+          FROM services sl
           JOIN providers p  ON sl.provider_id = p.id
-          JOIN service_categories sc ON sl.category_id = sc.id
+          LEFT JOIN service_categories sc ON sl.category_id = sc.id
           WHERE sl.status = 'active'
           ORDER BY sl.views_count DESC, sl.created_at DESC
           LIMIT 6";
@@ -45,12 +45,12 @@ $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // â”€â”€ Get top providers â”€â”€
 // - avg_rating and review_count from service_reviews
-// - service_count: active listings from service_listings
+// - service_count: active listings from services
 // - availed_count: completed jobs from availed_services
 $query = "SELECT p.*,
           (SELECT ROUND(AVG(r.rating),1) FROM service_reviews r WHERE r.provider_id = p.id)             AS avg_rating,
           (SELECT COUNT(*)               FROM service_reviews r WHERE r.provider_id = p.id)             AS review_count,
-          (SELECT COUNT(*)               FROM service_listings sl
+          (SELECT COUNT(*)               FROM services sl
                                          WHERE sl.provider_id = p.user_id AND sl.status = 'active')     AS service_count,
           (SELECT COUNT(*)               FROM availed_services av
                                          WHERE av.provider_id = p.id AND av.status = 'completed')       AS completed_count
@@ -428,6 +428,11 @@ function timeAgo($datetime) {
                         </div>
                         <button type="submit" class="btn-primary search-btn"><i class="fas fa-search"></i> Find Services</button>
                     </form>
+                    <p style="margin-top:14px;font-size:14px;">
+                        <a href="<?php echo appUrl('recommend.php'); ?>" style="color:var(--primary);font-weight:700;text-decoration:none;">
+                            <i class="fas fa-wand-magic-sparkles"></i> Not sure who to pick? Let us match you →
+                        </a>
+                    </p>
                 </div>
                 <div class="hero-stats">
                     <div class="hero-stat"><span class="hero-stat-number">500+</span><span class="hero-stat-label">Trusted Providers</span></div>

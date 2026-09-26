@@ -47,10 +47,10 @@ try {
     
     // Fetch service requests for this user
     $requests_query = "SELECT sr.id, sr.status, sr.created_at, sr.preferred_date,
-                              sl.title as service_title, sl.price,
+                              sl.service_name as service_title, sl.price,
                               p.company_name, u2.first_name as provider_first_name, u2.last_name as provider_last_name
                        FROM service_requests sr
-                       LEFT JOIN service_listings sl ON sr.listing_id = sl.id
+                       LEFT JOIN services sl ON sr.listing_id = sl.id
                        LEFT JOIN providers p ON sr.provider_id = p.user_id
                        LEFT JOIN users u2 ON sr.provider_id = u2.id
                        WHERE sr.seeker_id = :user_id

@@ -7,6 +7,10 @@ require_once '../includes/employee_catalog.php';
 $database = new Database();
 $db = $database->getConnection();
 $pid = (int)$portal_provider_id;
+// Sidebar defaults to the free tier when $tier_is_paid is unset — this page
+// never loaded portal-tier.php, so a paid provider's own sidebar always
+// showed Pro nav items as locked here.
+require_once 'includes/portal-tier.php';
 $positionOptions = pestifyEmployeePositionOptions();
 $employmentTypeOptions = pestifyEmploymentTypeOptions();
 
@@ -144,15 +148,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $sal = (float)($_POST['basic_salary']??0);
         $hire = $_POST['hire_date']??date('Y-m-d');
         $emp_type = $_POST['employment_type']??'regular';
+        $staff_type = ($_POST['staff_type'] ?? 'office') === 'field' ? 'field' : 'office';
+        $sss_no = trim($_POST['sss_no']??'');
+        $philhealth_no = trim($_POST['philhealth_no']??'');
+        $pagibig_no = trim($_POST['pagibig_no']??'');
+        $tin_no = trim($_POST['tin_no']??'');
         $code = 'EMP-'.strtoupper(substr($ln,0,3)).'-'.rand(1000,9999);
         $tmp_pwd = 'Pass@'.rand(10000,99999);
         $hash = password_hash($tmp_pwd, PASSWORD_BCRYPT);
+        $emailCheckStmt = $db->prepare("SELECT id FROM employees WHERE email = :em");
+        $emailCheckStmt->execute([':em' => $em]);
         if ($positionSelection === '__custom__' && $customPosition === '') {
             $error = 'Please enter the custom position title.';
+        } elseif ($emailCheckStmt->fetch(PDO::FETCH_ASSOC)) {
+            $error = 'An employee with this email already exists. Employee login requires a unique email.';
         } else {
             try {
-                $s = $db->prepare("INSERT INTO employees (provider_id,employee_id,first_name,last_name,email,position,department,basic_salary,salary,hire_date,employment_type,status,temp_password,password_hash,must_change_pwd,created_at) VALUES (:pid,:code,:fn,:ln,:em,:pos,:dept,:sal,:sal,:hire,:etype,'active',:tmp,:hash,1,NOW())");
-                $s->execute([':pid'=>$pid,':code'=>$code,':fn'=>$fn,':ln'=>$ln,':em'=>$em,':pos'=>$pos,':dept'=>$dept,':sal'=>$sal,':hire'=>$hire,':etype'=>$emp_type,':tmp'=>$tmp_pwd,':hash'=>$hash]);
+                $s = $db->prepare("INSERT INTO employees (provider_id,employee_id,first_name,last_name,email,position,department,staff_type,basic_salary,salary,hire_date,employment_type,sss_no,philhealth_no,pagibig_no,tin_no,status,temp_password,password_hash,must_change_pwd,created_at) VALUES (:pid,:code,:fn,:ln,:em,:pos,:dept,:stype,:sal,:sal,:hire,:etype,:sss,:phil,:pag,:tin,'active',:tmp,:hash,1,NOW())");
+                $s->execute([':pid'=>$pid,':code'=>$code,':fn'=>$fn,':ln'=>$ln,':em'=>$em,':pos'=>$pos,':dept'=>$dept,':stype'=>$staff_type,':sal'=>$sal,':hire'=>$hire,':etype'=>$emp_type,':sss'=>$sss_no,':phil'=>$philhealth_no,':pag'=>$pagibig_no,':tin'=>$tin_no,':tmp'=>$tmp_pwd,':hash'=>$hash]);
                 $email_sent = sendEmployeeWelcomeEmail($em, "$fn $ln", $code, $tmp_pwd, $portal_company);
                 $email_note = $email_sent
                     ? "<span style='color:#16a34a'><i class='fas fa-envelope-circle-check'></i> Welcome email sent to <strong>$em</strong>.</span>"
@@ -177,14 +190,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $existing = safeRow($db, "SELECT id FROM provider_staff WHERE provider_id=:p AND email=:e", [':p'=>$pid,':e'=>$emp['email']]);
             if ($existing) {
                 // Update existing staff record
-                $role_map = ['hr'=>'hr','finance'=>'finance'];
+                $role_map = ['hr'=>'hr','finance'=>'finance','crm'=>'crm'];
                 $role = $role_map[$dept] ?? 'hr';
                 $db->prepare("UPDATE provider_staff SET role=:r, department=:d, status='active' WHERE id=:id")
                    ->execute([':r'=>$role,':d'=>$dept,':id'=>$existing['id']]);
                 $success = "<strong>{$emp['first_name']} {$emp['last_name']}</strong> has been updated to <strong>" . ucfirst($dept) . " Manager</strong>.";
             } else {
                 // Create new staff record
-                $role_map = ['hr'=>'hr','finance'=>'finance'];
+                $role_map = ['hr'=>'hr','finance'=>'finance','crm'=>'crm'];
                 $role = $role_map[$dept] ?? 'hr';
                 $full_name = trim($emp['first_name'].' '.$emp['last_name']);
                 $username  = strtolower(str_replace(' ','_',$full_name)).rand(10,99);
@@ -339,6 +352,9 @@ tbody tr:hover{background:#fafbfc}
                 <div class="emp-avatar"><?= $initials ?></div>
                 <div>
                     <strong><?= htmlspecialchars($e['first_name'].' '.$e['last_name']) ?></strong>
+                    <?php if (($e['staff_type'] ?? 'office') === 'field'): ?>
+                    <span class="badge badge-green" style="font-size:9px;padding:1px 6px;margin-left:4px"><i class="fas fa-toolbox"></i> Field</span>
+                    <?php endif; ?>
                     <br><small style="color:var(--muted)"><?= htmlspecialchars($e['email']) ?></small>
                 </div>
             </div>
@@ -395,11 +411,12 @@ tbody tr:hover{background:#fafbfc}
             <input type="text" name="custom_position" id="portalCustomPositionInput">
         </div>
         <div class="form-group"><label>Department</label>
-            <select name="department">
+            <select name="department" id="portalDepartmentSelect">
                 <option value="">— Select Department —</option>
                 <option value="Finance">Finance</option>
                 <option value="Human Resources">Human Resources</option>
                 <option value="Customer Relationship">Customer Relationship</option>
+                <option value="Field Operations">Field Operations</option>
             </select>
         </div>
         <div class="form-group"><label>Basic Salary (₱)</label><input type="number" name="basic_salary" min="0" step="0.01"></div>
@@ -411,6 +428,17 @@ tbody tr:hover{background:#fafbfc}
                 <?php endforeach; ?>
             </select>
         </div>
+        <div class="form-group"><label>Staff Type *</label>
+            <select name="staff_type" id="portalStaffTypeSelect" required>
+                <option value="office">Office Staff</option>
+                <option value="field">Field Technician</option>
+            </select>
+            <small id="portalStaffTypeHint" style="color:var(--muted);font-size:11px;display:block;margin-top:4px">Field Technicians can be assigned to services and handle bookings on-site. Office Staff cannot.</small>
+        </div>
+        <div class="form-group"><label>SSS No.</label><input type="text" name="sss_no" placeholder="Optional"></div>
+        <div class="form-group"><label>PhilHealth No.</label><input type="text" name="philhealth_no" placeholder="Optional"></div>
+        <div class="form-group"><label>Pag-IBIG No.</label><input type="text" name="pagibig_no" placeholder="Optional"></div>
+        <div class="form-group"><label>TIN</label><input type="text" name="tin_no" placeholder="Optional"></div>
     </div>
     <div class="modal-footer">
         <button type="button" onclick="document.getElementById('addModal').classList.remove('active')" class="btn btn-outline">Cancel</button>
@@ -458,6 +486,7 @@ tbody tr:hover{background:#fafbfc}
             <select name="promote_dept" id="promote_dept" class="form-control" style="padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit">
                 <option value="hr">Human Resources (HR Manager)</option>
                 <option value="finance">Finance (Finance Manager)</option>
+                <option value="crm">CRM (CRM Manager)</option>
             </select>
         </div>
     </div>
@@ -516,5 +545,73 @@ if (portalPositionSelect && portalCustomPositionWrap && portalCustomPositionInpu
     syncPortalPositionMode();
     portalPositionSelect.addEventListener('change', syncPortalPositionMode);
 }
+
+// Adaptive Department -> Position / Staff Type filtering for Add Employee.
+const PORTAL_DEPT_CATALOG = <?= json_encode(pestifyEmployeeDepartmentCatalog()) ?>;
+const PORTAL_POSITION_DEFAULT_STAFF_TYPE = <?= json_encode(pestifyPositionDefaultStaffType()) ?>;
+const PORTAL_ALL_POSITIONS = <?= json_encode($positionOptions) ?>;
+(function () {
+    const deptSelect      = document.getElementById('portalDepartmentSelect');
+    const positionSelect  = document.getElementById('portalPositionSelect');
+    const staffTypeSelect = document.getElementById('portalStaffTypeSelect');
+    const staffTypeHint   = document.getElementById('portalStaffTypeHint');
+    if (!deptSelect || !positionSelect || !staffTypeSelect) return;
+
+    function rebuildPositionOptions() {
+        const dept = deptSelect.value;
+        const positions = (PORTAL_DEPT_CATALOG[dept] && PORTAL_DEPT_CATALOG[dept].positions) || PORTAL_ALL_POSITIONS;
+        const previousValue = positionSelect.value;
+
+        positionSelect.innerHTML = '';
+        const blankOpt = document.createElement('option');
+        blankOpt.value = ''; blankOpt.textContent = 'Select a position';
+        positionSelect.appendChild(blankOpt);
+        positions.forEach(function (p) {
+            const opt = document.createElement('option');
+            opt.value = p; opt.textContent = p;
+            positionSelect.appendChild(opt);
+        });
+        const customOpt = document.createElement('option');
+        customOpt.value = '__custom__'; customOpt.textContent = 'Other / Custom';
+        positionSelect.appendChild(customOpt);
+
+        // Keep the previous selection if it's still valid for this department.
+        if (previousValue && (positions.includes(previousValue) || previousValue === '__custom__')) {
+            positionSelect.value = previousValue;
+        }
+        positionSelect.dispatchEvent(new Event('change'));
+    }
+
+    function syncStaffTypeForDepartment() {
+        const dept = deptSelect.value;
+        const allowed = (PORTAL_DEPT_CATALOG[dept] && PORTAL_DEPT_CATALOG[dept].allowed_staff_types) || ['office', 'field'];
+        Array.from(staffTypeSelect.options).forEach(function (opt) {
+            opt.disabled = !allowed.includes(opt.value);
+        });
+        if (!allowed.includes(staffTypeSelect.value)) {
+            staffTypeSelect.value = allowed[0];
+        }
+        if (staffTypeHint) {
+            staffTypeHint.textContent = allowed.length === 1
+                ? (dept + ' is office-only — Field Technician isn’t applicable here.')
+                : 'Field Technicians can be assigned to services and handle bookings on-site. Office Staff cannot.';
+        }
+    }
+
+    function suggestStaffTypeForPosition() {
+        const dept = deptSelect.value;
+        const allowed = (PORTAL_DEPT_CATALOG[dept] && PORTAL_DEPT_CATALOG[dept].allowed_staff_types) || ['office', 'field'];
+        const suggestion = PORTAL_POSITION_DEFAULT_STAFF_TYPE[positionSelect.value];
+        if (suggestion && allowed.includes(suggestion)) {
+            staffTypeSelect.value = suggestion;
+        }
+    }
+
+    deptSelect.addEventListener('change', function () {
+        syncStaffTypeForDepartment();
+        rebuildPositionOptions();
+    });
+    positionSelect.addEventListener('change', suggestStaffTypeForPosition);
+})();
 </script>
 </body></html>

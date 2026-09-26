@@ -20,8 +20,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $desc  = trim($_POST['description']??'');
         if (!$title || !$date) { $error = 'Title and date are required.'; }
         else {
-            $db->prepare("INSERT INTO schedules (employee_id,department,title,description,schedule_date,start_time,end_time,type,created_by) VALUES(:e,:d,:t,:de,:sd,:st,:et,:ty,:by)")
-            ->execute([':e'=>$emp_id,':d'=>$dept,':t'=>$title,':de'=>$desc,':sd'=>$date,':st'=>$start,':et'=>$end,':ty'=>$type,':by'=>$_SESSION['admin_id']]);
+            // schedules was originally built for weekly-recurring shift templates
+            // (schedule_name/day_of_week/start_time/end_time are all NOT NULL with
+            // no default) but this page is the table's only real consumer and treats
+            // it as a one-off calendar-event table instead — title/description/
+            // schedule_date/type/department/created_by were added as columns to
+            // match. schedule_name mirrors title and day_of_week is derived from
+            // the picked date so the still-NOT-NULL legacy columns stay satisfied.
+            $dayOfWeek = date('l', strtotime($date));
+            $db->prepare("INSERT INTO schedules (employee_id,department,title,description,schedule_date,start_time,end_time,type,created_by,schedule_name,day_of_week) VALUES(:e,:d,:t,:de,:sd,:st,:et,:ty,:by,:sn,:dow)")
+            ->execute([
+                ':e'=>$emp_id,':d'=>$dept,':t'=>$title,':de'=>$desc,':sd'=>$date,
+                ':st'=>$start ?: '08:00:00',':et'=>$end ?: '17:00:00',':ty'=>$type,
+                ':by'=>$_SESSION['admin_id'],':sn'=>$title,':dow'=>$dayOfWeek,
+            ]);
             $success = 'Schedule added.';
         }
     } elseif ($action === 'delete') {
@@ -41,7 +53,10 @@ foreach ($schedules as $s) {
     $cal_events[date('j',strtotime($s['schedule_date']))][] = $s;
 }
 
-$employees = $db->query("SELECT id,employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
+// employees has no employee_code column — employee_id (varchar) is the
+// actual human-readable code column; aliased back to employee_code so the
+// template below (which reads $e['employee_code']) needs no other changes.
+$employees = $db->query("SELECT id,employee_id AS employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
 
 $active_menu = 'schedules';
 $month_start = new DateTime($month . '-01');

@@ -24,22 +24,34 @@ $user_id    = (int)$_SESSION['user_id'];
 
 if (!$booking_id) { header('Location: ' . $homeUrl); exit; }
 
-// Fetch booking — must belong to this seeker and be payable
-$bk = $db->prepare("SELECT a.*, p.company_name, p.id AS pid
+// Fetch booking — must belong to this seeker and be payable.
+// Joins users so the PayMongo billing payload below can be pre-filled with the
+// seeker's real email (availed_services itself has no email column). Also
+// joins services for requires_inspection: an inspection-required booking's
+// 'accepted' status covers both the pre-inspection estimate and the
+// post-agreement final price, and only the latter is payable — this is the
+// server-side enforcement of the same gate seeker/my-requests.php's "Pay
+// Now" button visibility uses, so this URL can't be hit directly (bookmarked,
+// stale tab, etc.) to create a real PayMongo checkout for an estimate amount.
+$bk = $db->prepare("SELECT a.*, p.company_name, p.id AS pid, u.email AS seeker_email
                     FROM availed_services a
                     JOIN providers p ON p.id = a.provider_id
+                    JOIN users u ON u.id = :uid3
+                    LEFT JOIN services s ON s.id = a.service_id
                     WHERE a.id = :id
                       AND (a.user_id = :uid OR a.seeker_user_id = :uid2)
                       AND (
-                            (a.status IN ('accepted', 'waiting_provider_confirmation') AND a.payment_status = 'unpaid')
+                            (a.status IN ('accepted', 'waiting_provider_confirmation') AND a.payment_status = 'unpaid'
+                             AND (COALESCE(s.requires_inspection, 0) = 0 OR a.inspection_agreed_at IS NOT NULL))
                             OR
                             (a.status = 'waiting_remaining_payment' AND a.payment_status = 'partial')
                           )");
-$bk->execute([':id' => $booking_id, ':uid' => $user_id, ':uid2' => $user_id]);
+$bk->execute([':id' => $booking_id, ':uid' => $user_id, ':uid2' => $user_id, ':uid3' => $user_id]);
 $booking = $bk->fetch(PDO::FETCH_ASSOC);
 
 if (!$booking) {
-    // Already paid, wrong user, or not payable
+    // Already paid, wrong user, not payable, or (for an inspection-required
+    // service) not yet agreed to a final price.
     $_SESSION['error'] = 'This booking is not available for payment.';
     header('Location: ' . $homeUrl); exit;
 }
@@ -92,8 +104,14 @@ if (!$checkout_url && defined('PAYMONGO_SECRET_KEY') && PAYMONGO_SECRET_KEY) {
     $labelPrefix = $is_remaining_payment ? "Remaining Balance - Booking #{$booking_id}" : "Booking #{$booking_id}";
     $label    = $labelPrefix . ($booking['service_name'] ? " - {$booking['service_name']}" : '');
 
+    // Pre-fills PayMongo's hosted checkout page's Contact Information fields with
+    // what's already on file, so the seeker isn't asked to retype their phone/email.
+    $billing = ['name' => $booking['full_name']];
+    if (!empty($booking['seeker_email']))   $billing['email'] = $booking['seeker_email'];
+    if (!empty($booking['contact_number'])) $billing['phone'] = $booking['contact_number'];
+
     $payload = ['data' => ['attributes' => [
-        'billing'              => ['name' => $booking['full_name'], 'phone' => $booking['contact_number']],
+        'billing'              => $billing,
         'send_email_receipt'   => false,
         'show_description'     => true,
         'show_line_items'      => true,

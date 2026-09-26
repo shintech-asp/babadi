@@ -8,7 +8,6 @@ $db = $database->getConnection();
 $pid = (int)$portal_provider_id;
 
 require_once 'includes/portal-tier.php';
-if (!$tier_is_paid) { echo _tierLockedPage('Timekeeping'); exit; }
 
 // ── Timezone fix ─────────────────────────────────────────
 date_default_timezone_set('Asia/Manila');
@@ -23,56 +22,19 @@ $self_emp_id = (int)($_SESSION['portal_employee_id'] ?? 0);
 // If neither HR/owner nor an employee with a record, block
 if (!$is_hr && !$is_emp && !$self_emp_id) { header('Location: dashboard.php'); exit; }
 
+// Self-service clock in/out is a basic feature available regardless of the
+// provider's subscription tier — only the HR management view (viewing/
+// editing everyone's timekeeping) is Pro-gated.
+if (!$tier_is_paid && !$is_emp) { echo _tierLockedPage('Timekeeping'); exit; }
+
+require_once __DIR__ . '/../includes/hr_schedule_helper.php';
+require_once __DIR__ . '/../includes/timekeeping_helper.php';
+
 function safeAll($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetchAll(PDO::FETCH_ASSOC);}catch(Exception $e){return[];}}
 function safeRow($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetch(PDO::FETCH_ASSOC);}catch(Exception $e){return null;}}
 
 // ── Fetch default work schedule ──────────────────────────────────────
-$schedule = safeRow($db,
-    "SELECT * FROM hr_work_schedules WHERE (provider_id=:p OR provider_id IS NULL) AND is_default=1 ORDER BY provider_id DESC LIMIT 1",
-    [':p'=>$pid]
-);
-
-function getScheduleForDate($schedule, $date) {
-    if (!$schedule) return null;
-    $map = ['Sun'=>'sun','Mon'=>'mon','Tue'=>'tue','Wed'=>'wed','Thu'=>'thu','Fri'=>'fri','Sat'=>'sat'];
-    $key = $map[date('D', strtotime($date))] ?? null;
-    if (!$key) return null;
-    $start = $schedule[$key.'_start'] ?? null;
-    $end   = $schedule[$key.'_end']   ?? null;
-    if (!$start || !$end) return null;
-    return ['start'=>$start,'end'=>$end,'grace'=>(int)($schedule['grace_period']??15)];
-}
-
-function calcTimings($time_in, $time_out, $sched) {
-    $r = ['late_min'=>0,'undertime_min'=>0,'overtime_min'=>0,'hours_worked'=>0,'regular_hours'=>0,'overtime_hours'=>0,'status'=>'present'];
-    if (!$time_in) return $r;
-    $ti_ts = strtotime($time_in);
-    $to_ts = $time_out ? strtotime($time_out) : null;
-    if ($sched) {
-        $ss   = strtotime($sched['start']);
-        $se   = strtotime($sched['end']);
-        $grace= $sched['grace'] * 60;
-        $sh   = ($se - $ss) / 3600;
-        if ($ti_ts > $ss + $grace) { $r['late_min'] = (int)(($ti_ts - $ss)/60); $r['status'] = 'late'; }
-        if ($to_ts) {
-            $h = max(0, ($to_ts - $ti_ts) / 3600);
-            $r['hours_worked'] = round($h, 2);
-            if ($to_ts < $se) $r['undertime_min'] = (int)(($se - $to_ts)/60);
-            if ($to_ts > $se) { $r['overtime_min'] = (int)(($to_ts-$se)/60); $r['overtime_hours'] = round(($to_ts-$se)/3600,2); }
-            $r['regular_hours'] = round(min($h, $sh), 2);
-        }
-    } else {
-        if ($to_ts) {
-            $h = max(0, ($to_ts - $ti_ts)/3600);
-            $r['hours_worked']   = round($h,2);
-            $r['overtime_hours'] = round(max(0,$h-8),2);
-            $r['regular_hours']  = round(min($h,8),2);
-            if ($r['overtime_hours']>0) $r['overtime_min']=(int)($r['overtime_hours']*60);
-        }
-    }
-    if ($r['late_min']>0 && $r['undertime_min']>0) $r['status']='half_day';
-    return $r;
-}
+$schedule = getDefaultWorkSchedule($db, $pid);
 
 // ── POST handlers ────────────────────────────────────────────────────
 $success = $error = '';
@@ -82,93 +44,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Self Time-In ──
     if ($action === 'timein' && $self_emp_id) {
-        $today = date('Y-m-d');
-        $now   = date('H:i:s');
-        $existing = safeRow($db,
-            "SELECT id, time_in FROM timekeeping WHERE provider_id=:p AND employee_id=:e AND work_date=:d",
-            [':p'=>$pid,':e'=>$self_emp_id,':d'=>$today]
-        );
-        if ($existing && $existing['time_in']) {
-            $error = "You already timed in today at " . date('h:i A', strtotime($existing['time_in'])) . ".";
+        $r = selfClockIn($db, $pid, $self_emp_id);
+        if (!$r['ok']) {
+            $error = $r['error'];
         } else {
-            $sched = getScheduleForDate($schedule, $today);
-            // ── Working hours restriction ──────────────────
-            if ($sched) {
-                $now_ts       = strtotime($now);
-                $sched_start  = strtotime($sched['start']);
-                $sched_end    = strtotime($sched['end']);
-                $two_hrs_before = $sched_start - (2 * 3600); // allow 2h early
-                $two_hrs_after  = $sched_end   + (2 * 3600); // allow 2h late
-                if ($now_ts < $two_hrs_before || $now_ts > $two_hrs_after) {
-                    $error = "Time-in is only allowed between " . date('h:i A', $two_hrs_before) . " and " . date('h:i A', $two_hrs_after) . " (2 hours before/after your shift).";
-                }
-            }
-            if (!$error) {
-            $late = 0; $status = 'present';
-            if ($sched) {
-                $ss = strtotime($sched['start']);
-                $grace = $sched['grace'] * 60;
-                if (strtotime($now) > $ss + $grace) { $late = (int)((strtotime($now)-$ss)/60); $status = 'late'; }
-            }
-            try {
-                $db->prepare("INSERT INTO timekeeping (provider_id,employee_id,work_date,time_in,late_minutes,notes,created_at)
-                              VALUES (:p,:e,:d,:ti,:late,'Self time-in',NOW())
-                              ON DUPLICATE KEY UPDATE time_in=:ti, late_minutes=:late")
-                   ->execute([':p'=>$pid,':e'=>$self_emp_id,':d'=>$today,':ti'=>$now,':late'=>$late]);
-                $db->prepare("INSERT INTO attendance (provider_id,employee_id,date,time_in,late_minutes,status,time_in_mode,created_at)
-                              VALUES (:p,:e,:d,:ti,:late,:st,'system',NOW())
-                              ON DUPLICATE KEY UPDATE time_in=:ti, late_minutes=:late, status=:st")
-                   ->execute([':p'=>$pid,':e'=>$self_emp_id,':d'=>$today,':ti'=>$now,':late'=>$late,':st'=>$status]);
-                $success = "Time-in recorded at <strong>" . date('h:i A') . "</strong>" .
-                    ($late > 0 ? " &mdash; <span style='color:#d97706'>{$late} min late</span>"
-                               : " &mdash; <span style='color:#16a34a'>On time ✓</span>");
-            } catch(Exception $ex){ $error = $ex->getMessage(); }
-            } // end working hours check
+            $success = "Time-in recorded at <strong>" . date('h:i A', strtotime($r['time_in'])) . "</strong>" .
+                (($r['late_min'] ?? 0) > 0 ? " &mdash; <span style='color:#d97706'>{$r['late_min']} min late</span>"
+                                            : " &mdash; <span style='color:#16a34a'>On time ✓</span>");
         }
     }
 
     // ── Self Time-Out ──
     elseif ($action === 'timeout' && $self_emp_id) {
-        $today = date('Y-m-d');
-        $now   = date('H:i:s');
-        $existing = safeRow($db,
-            "SELECT id, time_in, time_out FROM timekeeping WHERE provider_id=:p AND employee_id=:e AND work_date=:d",
-            [':p'=>$pid,':e'=>$self_emp_id,':d'=>$today]
-        );
-        if (!$existing || !$existing['time_in']) {
-            $error = "You haven't timed in yet today.";
-        } elseif ($existing['time_out']) {
-            $error = "You already timed out today at " . date('h:i A', strtotime($existing['time_out'])) . ".";
+        $r = selfClockOut($db, $pid, $self_emp_id);
+        if (!$r['ok']) {
+            $error = $r['error'];
         } else {
-            $sched = getScheduleForDate($schedule, $today);
-            // ── Working hours restriction ──────────────────
-            if ($sched) {
-                $now_ts      = strtotime($now);
-                $sched_end   = strtotime($sched['end']);
-                $two_hrs_after = $sched_end + (2 * 3600);
-                if ($now_ts > $two_hrs_after) {
-                    $error = "Time-out window has passed. Please ask your HR manager to log your time manually.";
-                }
-            }
-            if (!$error) {
-            $timings = calcTimings($existing['time_in'], $now, $sched);
-            try {
-                $db->prepare("UPDATE timekeeping SET time_out=:to, hours_worked=:h, overtime_hours=:ot, regular_hours=:reg
-                              WHERE provider_id=:p AND employee_id=:e AND work_date=:d")
-                   ->execute([':to'=>$now,':h'=>$timings['hours_worked'],':ot'=>$timings['overtime_hours'],':reg'=>$timings['regular_hours'],':p'=>$pid,':e'=>$self_emp_id,':d'=>$today]);
-                $db->prepare("UPDATE attendance SET time_out=:to, undertime_min=:ut, overtime_min=:otm, total_hours=:h, status=:st
-                              WHERE provider_id=:p AND employee_id=:e AND date=:d")
-                   ->execute([':to'=>$now,':ut'=>$timings['undertime_min'],':otm'=>$timings['overtime_min'],':h'=>$timings['hours_worked'],':st'=>$timings['status'],':p'=>$pid,':e'=>$self_emp_id,':d'=>$today]);
-
-                if ($timings['overtime_min'] > 0)
-                    $label = "<span style='color:#7c3aed'>+" . gmdate('G:i', $timings['overtime_min']*60) . " overtime</span>";
-                elseif ($timings['undertime_min'] > 0)
-                    $label = "<span style='color:#d97706'>" . gmdate('G:i', $timings['undertime_min']*60) . " undertime</span>";
-                else
-                    $label = "<span style='color:#16a34a'>On time ✓</span>";
-                $success = "Time-out recorded at <strong>" . date('h:i A') . "</strong> &mdash; $label";
-            } catch(Exception $ex){ $error = $ex->getMessage(); }
-            } // end working hours check
+            if (($r['overtime_min'] ?? 0) > 0)
+                $label = "<span style='color:#7c3aed'>+" . gmdate('G:i', $r['overtime_min']*60) . " overtime</span>";
+            elseif (($r['undertime_min'] ?? 0) > 0)
+                $label = "<span style='color:#d97706'>" . gmdate('G:i', $r['undertime_min']*60) . " undertime</span>";
+            else
+                $label = "<span style='color:#16a34a'>On time ✓</span>";
+            $success = "Time-out recorded at <strong>" . date('h:i A', strtotime($r['time_out'])) . "</strong> &mdash; $label";
         }
     }
 
@@ -180,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $to    = $_POST['time_out'] ?: null;
         $notes = trim($_POST['notes']??'');
         $sched   = getScheduleForDate($schedule, $date);
-        $timings = calcTimings($ti, $to, $sched);
+        $timings = calcTimekeepingTimings($ti, $to, $sched);
         try {
             $db->prepare("INSERT INTO timekeeping (provider_id,employee_id,work_date,time_in,time_out,hours_worked,overtime_hours,regular_hours,late_minutes,notes,created_at)
                           VALUES (:p,:e,:d,:ti,:to,:h,:ot,:reg,:late,:n,NOW())

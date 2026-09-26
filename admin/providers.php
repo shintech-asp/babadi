@@ -41,7 +41,7 @@ $search = isset($_GET['search']) ? $_GET['search'] : '';
 // Build query
 $query = "SELECT p.*, u.first_name, u.last_name, u.email, u.phone,
           (SELECT AVG(overall_rating) FROM reviews WHERE provider_id = p.id) as avg_rating,
-          (SELECT COUNT(*) FROM service_listings WHERE provider_id = p.id AND status = 'active') as service_count
+          (SELECT COUNT(*) FROM services WHERE provider_id = p.id AND status = 'active') as service_count
           FROM providers p 
           JOIN users u ON p.user_id = u.id
           WHERE 1=1";

@@ -2,66 +2,80 @@
 require_once 'includes/portal-auth.php';
 require_once '../config/config.php';
 require_once '../config/database.php';
+require_once 'includes/portal-settings.php';
 
 $database = new Database();
 $db = $database->getConnection();
 $pid = (int)$portal_provider_id;
 
-if (!($portal_role === 'owner' || $portal_dept === 'hr' || $portal_dept === 'all')) {
-    header('Location: dashboard.php'); exit;
-}
+$can_hr      = ($portal_role === 'owner' || $portal_dept === 'hr'      || $portal_dept === 'all');
+$can_finance = ($portal_role === 'owner' || $portal_dept === 'finance' || $portal_dept === 'all');
+if (!$can_hr && !$can_finance) { header('Location: dashboard.php'); exit; }
 
 require_once 'includes/portal-tier.php';
 if (!$tier_is_paid) { echo _tierLockedPage('Payroll'); exit; }
 
+require_once __DIR__ . '/../includes/hr_schedule_helper.php';
+require_once __DIR__ . '/../includes/payroll_helper.php';
+
+// ── Configured rates (Settings > HR / Finance) — see provider-portal/settings.php.
+// Also used purely for display below; the actual generation math lives in
+// includes/payroll_helper.php's generatePayrollForPeriod(), which re-reads
+// these same settings itself. SSS/PhilHealth/Pag-IBIG are NOT here anymore —
+// they're the fixed government schedule via computeStatutoryDeductions().
+$ot_multiplier  = (float)getSetting($db,$pid,'overtime_rate','1.25');
+$working_days_per_month = max(1, (int)getSetting($db,$pid,'working_days_per_month','22'));
+$cutoff1        = max(1, min(28, (int)getSetting($db,$pid,'payroll_cutoff_1','15')));
+$cutoff2        = max($cutoff1 + 1, (int)getSetting($db,$pid,'payroll_cutoff_2','30'));
+
 function safeAll($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetchAll(PDO::FETCH_ASSOC);}catch(Exception $e){return[];}}
+function safeRow($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return $s->fetch(PDO::FETCH_ASSOC);}catch(Exception $e){return null;}}
+function safeCount($db,$sql,$p=[]){try{$s=$db->prepare($sql);$s->execute($p);return(int)$s->fetchColumn();}catch(Exception $e){return 0;}}
 
 $success = $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    if ($_POST['action'] === 'generate') {
-        $eid = (int)($_POST['employee_id']??0);
-        $start = $_POST['pay_period_start']??'';
-        $end = $_POST['pay_period_end']??'';
-        $period_name = trim($_POST['pay_period_name']??'');
-        $emp = safeAll($db,"SELECT * FROM employees WHERE id=:id AND provider_id=:p",[':id'=>$eid,':p'=>$pid]);
-        if (empty($emp)) { $error="Employee not found."; }
-        else {
-            $e = $emp[0];
-            $basic = (float)$e['basic_salary'];
-            $freq = $e['pay_frequency']??'semi_monthly';
-            $gross = $freq === 'semi_monthly' ? $basic / 2 : $basic;
-            $sss_e = round($gross * 0.045, 2);
-            $phil_e = round($gross * 0.02, 2);
-            $pag_e = round(min($gross, 5000) * 0.02, 2);
-            $sss_er = round($gross * 0.095, 2);
-            $phil_er = round($gross * 0.02, 2);
-            $pag_er = round(min($gross, 5000) * 0.02, 2);
-            $tax = 0;
-            if ($gross > 33332) $tax = ($gross - 33332) * 0.20;
-            elseif ($gross > 8333) $tax = ($gross - 8333) * 0.15;
-            $deductions = $sss_e + $phil_e + $pag_e + $tax;
-            $net = $gross - $deductions;
-            try {
-                $db->prepare("INSERT INTO payroll (provider_id,employee_id,pay_period_name,pay_period_start,pay_period_end,basic_salary,gross_salary,sss_employee,philhealth_employee,pagibig_employee,withholding_tax,sss_employer,philhealth_employer,pagibig_employer,deductions,net_salary,status) VALUES (:pid,:eid,:pn,:ps,:pe,:bs,:gs,:sse,:phe,:pae,:wt,:sser,:pher,:paer,:ded,:net,'pending')")
-                   ->execute([':pid'=>$pid,':eid'=>$eid,':pn'=>$period_name,':ps'=>$start,':pe'=>$end,':bs'=>$basic,':gs'=>$gross,':sse'=>$sss_e,':phe'=>$phil_e,':pae'=>$pag_e,':wt'=>$tax,':sser'=>$sss_er,':pher'=>$phil_er,':paer'=>$pag_er,':ded'=>$deductions,':net'=>$net]);
-                $success = "Payroll generated for {$e['first_name']} {$e['last_name']}. Net Pay: ₱".number_format($net,2);
-            } catch(Exception $ex){ $error = $ex->getMessage(); }
+
+    // ── HR: bulk-generate payroll for a period, computed from real attendance ──
+    if ($_POST['action'] === 'generate' && $can_hr) {
+        $month = $_POST['month'] ?? date('Y-m');
+        $half  = ($_POST['half'] ?? '1') === '2' ? '2' : '1';
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $error = 'Invalid month.';
+        } else {
+            $result = generatePayrollForPeriod($db, $pid, $month, $half);
+            $success = "Generated payroll for {$result['generated']} employee(s) — {$result['period_name']}."
+                . ($result['skipped'] > 0 ? " ({$result['skipped']} already had payroll for this period.)" : '');
         }
-    } elseif ($_POST['action'] === 'mark_paid') {
-        $rid = (int)($_POST['payroll_id']??0);
-        $db->prepare("UPDATE payroll SET status='paid',payment_date=NOW() WHERE id=:id AND provider_id=:p")->execute([':id'=>$rid,':p'=>$pid]);
+
+    // ── Finance: approve a pending payroll run (pending -> processed) ──
+    } elseif ($_POST['action'] === 'approve' && $can_finance) {
+        $rid = (int)($_POST['payroll_id'] ?? 0);
+        $db->prepare("UPDATE payroll SET status='processed' WHERE id=:id AND provider_id=:p AND status='pending'")
+           ->execute([':id'=>$rid, ':p'=>$pid]);
+        $success = "Payroll approved and ready to pay.";
+
+    // ── Finance: mark an approved payroll as paid ──
+    } elseif ($_POST['action'] === 'mark_paid' && $can_finance) {
+        $rid = (int)($_POST['payroll_id'] ?? 0);
+        $db->prepare("UPDATE payroll SET status='paid', payment_date=NOW() WHERE id=:id AND provider_id=:p AND status='processed'")
+           ->execute([':id'=>$rid, ':p'=>$pid]);
         $success = "Payroll marked as paid.";
     }
 }
 
 $month_filter = $_GET['month'] ?? date('Y-m');
-$records = safeAll($db,"SELECT p.*, CONCAT(e.first_name,' ',e.last_name) AS emp_name, e.employee_code, e.department, e.position FROM payroll p JOIN employees e ON p.employee_id=e.id WHERE p.provider_id=:p AND DATE_FORMAT(p.pay_period_start,'%Y-%m')=:m ORDER BY p.created_at DESC",[':p'=>$pid,':m'=>$month_filter]);
-$employees = safeAll($db,"SELECT id,first_name,last_name,employee_code,basic_salary,pay_frequency FROM employees WHERE provider_id=:p AND status='active' ORDER BY first_name",[':p'=>$pid]);
+$records = safeAll($db,
+    "SELECT p.*, CONCAT(e.first_name,' ',e.last_name) AS emp_name, e.employee_id AS emp_code, e.department, e.position
+     FROM payroll p JOIN employees e ON p.employee_id=e.id
+     WHERE p.provider_id=:p AND DATE_FORMAT(p.pay_period_start,'%Y-%m')=:m
+     ORDER BY p.created_at DESC",
+    [':p'=>$pid, ':m'=>$month_filter]
+);
 
 $total_gross = array_sum(array_column($records,'gross_salary'));
 $total_net = array_sum(array_column($records,'net_salary'));
-$total_ded = array_sum(array_column($records,'deductions'));
+$total_ded = array_sum(array_column($records,'deductions')) + array_sum(array_column($records,'absent_deduction')) + array_sum(array_column($records,'late_deduction'));
 
 $active_menu='payroll';
 ?>
@@ -92,6 +106,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:#2d3748}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border:none;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;text-decoration:none;transition:all .2s}
 .btn-primary{background:var(--primary);color:#fff}
 .btn-success{background:#27ae60;color:#fff}
+.btn-info{background:#2563eb;color:#fff}
 .btn-outline{background:#fff;color:var(--dark);border:1px solid var(--border)}
 .btn-sm{padding:5px 10px;font-size:11px}
 .alert{padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px}
@@ -99,6 +114,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:#2d3748}
 .alert-error{background:#fff5f5;border:1px solid #fed7d7;color:#c53030}
 .filters{display:flex;gap:10px;margin-bottom:20px}
 .filters input{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:#fff}
+.rate-note{background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--muted);margin-bottom:16px}
+.rate-note a{color:var(--primary);font-weight:600;text-decoration:none}
 .card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.07);border:1px solid var(--border);overflow:hidden}
 table{width:100%;border-collapse:collapse}
 thead th{background:#f8fafc;padding:10px 14px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);border-bottom:2px solid var(--border);text-align:left}
@@ -111,16 +128,15 @@ tbody tr:hover{background:#fafbfc}
 .badge-gray{background:#e2e8f0;color:#4a5568}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center}
 .modal-overlay.active{display:flex}
-.modal{background:#fff;border-radius:14px;padding:28px;width:100%;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto}
-.modal h3{font-size:16px;font-weight:700;color:var(--dark);margin-bottom:20px;display:flex;align-items:center;gap:8px}
+.modal{background:#fff;border-radius:14px;padding:28px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto}
+.modal h3{font-size:16px;font-weight:700;color:var(--dark);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.modal p.hint{font-size:12px;color:var(--muted);margin-bottom:18px}
 .form-group{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
 .form-group label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .form-group input,.form-group select{padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit}
 .modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
-.preview-box{background:#f8fafc;border-radius:10px;padding:14px;margin-top:10px;border:1px solid var(--border)}
-.preview-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--border)}
-.preview-row:last-child{border-bottom:none;font-weight:700;font-size:14px}
 .empty-state{text-align:center;padding:50px;color:var(--muted)}
+.small-cell{font-size:11px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -134,11 +150,19 @@ tbody tr:hover{background:#fafbfc}
         <h1><i class="fas fa-money-bill-wave"></i> Payroll</h1>
         <p><?= date('F Y', strtotime($month_filter.'-01')) ?> — <?= count($records) ?> record(s)</p>
     </div>
-    <button onclick="document.getElementById('addModal').classList.add('active')" class="btn btn-primary"><i class="fas fa-plus"></i> Generate Payroll</button>
+    <?php if ($can_hr): ?>
+    <button onclick="document.getElementById('addModal').classList.add('active')" class="btn btn-primary"><i class="fas fa-calculator"></i> Generate Payroll</button>
+    <?php endif; ?>
 </div>
 
-<?php if($success): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $success ?></div><?php endif; ?>
-<?php if($error): ?><div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <?= $error ?></div><?php endif; ?>
+<?php if($success): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($success) ?></div><?php endif; ?>
+<?php if($error): ?><div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <?= htmlspecialchars($error) ?></div><?php endif; ?>
+
+<div class="rate-note">
+    <i class="fas fa-circle-info"></i> Computed from actual attendance using: working days/month = <strong><?= $working_days_per_month ?></strong>,
+    overtime = <strong><?= $ot_multiplier ?>×</strong>. SSS/PhilHealth/Pag-IBIG use the fixed government schedule (not editable per company).
+    <?php if ($can_hr): ?><a href="settings.php?tab=finance">View rates in Settings →</a><?php endif; ?>
+</div>
 
 <div class="stats-grid">
     <div class="stat-card"><div class="stat-icon si-purple"><i class="fas fa-money-bill"></i></div><div class="stat-info"><h3>₱<?= number_format($total_gross,0) ?></h3><p>Gross Payroll</p></div></div>
@@ -147,36 +171,45 @@ tbody tr:hover{background:#fafbfc}
 </div>
 
 <form method="GET" class="filters">
-    <input type="month" name="month" value="<?= $month_filter ?>" onchange="this.form.submit()">
+    <input type="month" name="month" value="<?= htmlspecialchars($month_filter) ?>" onchange="this.form.submit()">
 </form>
 
 <div class="card">
 <div style="overflow-x:auto">
 <table>
-    <thead><tr><th>Employee</th><th>Period</th><th>Gross</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Tax</th><th>Net Pay</th><th>Status</th><th>Action</th></tr></thead>
+    <thead><tr><th>Employee</th><th>Period</th><th>Days</th><th>Gross</th><th>Absent</th><th>Late</th><th>OT Pay</th><th>Statutory</th><th>Net Pay</th><th>Status</th><th>Action</th></tr></thead>
     <tbody>
     <?php if(empty($records)): ?>
-    <tr><td colspan="10"><div class="empty-state"><i class="fas fa-money-bill-wave" style="font-size:36px;opacity:.2;display:block;margin-bottom:10px"></i><p>No payroll records for this month.</p></div></td></tr>
+    <tr><td colspan="11"><div class="empty-state"><i class="fas fa-money-bill-wave" style="font-size:36px;opacity:.2;display:block;margin-bottom:10px"></i><p>No payroll records for this month.</p></div></td></tr>
     <?php endif; ?>
     <?php foreach($records as $r): ?>
     <tr>
-        <td><strong><?= htmlspecialchars($r['emp_name']) ?></strong><br><small style="color:var(--muted)"><?= htmlspecialchars($r['position']??'—') ?></small></td>
-        <td style="font-size:11px"><?= date('M d', strtotime($r['pay_period_start'])) ?> – <?= date('M d', strtotime($r['pay_period_end'])) ?><br><small style="color:var(--muted)"><?= htmlspecialchars($r['pay_period_name']??'') ?></small></td>
+        <td><strong><?= htmlspecialchars($r['emp_name']) ?></strong><br><small class="small-cell"><?= htmlspecialchars($r['position']??'—') ?></small></td>
+        <td class="small-cell"><?= date('M d', strtotime($r['pay_period_start'])) ?> – <?= date('M d', strtotime($r['pay_period_end'])) ?></td>
+        <td class="small-cell">Worked <?= (int)$r['days_worked'] ?> · Absent <?= (int)$r['days_absent'] ?></td>
         <td>₱<?= number_format($r['gross_salary'],2) ?></td>
-        <td style="color:#c53030">₱<?= number_format($r['sss_employee'],2) ?></td>
-        <td style="color:#c53030">₱<?= number_format($r['philhealth_employee'],2) ?></td>
-        <td style="color:#c53030">₱<?= number_format($r['pagibig_employee'],2) ?></td>
-        <td style="color:#c53030">₱<?= number_format($r['withholding_tax'],2) ?></td>
+        <td style="color:#c53030">-₱<?= number_format($r['absent_deduction'],2) ?></td>
+        <td style="color:#c53030">-₱<?= number_format($r['late_deduction'],2) ?></td>
+        <td style="color:#276749">+₱<?= number_format($r['overtime_pay'],2) ?></td>
+        <td style="color:#c53030">-₱<?= number_format($r['deductions'],2) ?></td>
         <td style="font-weight:700;color:#276749">₱<?= number_format($r['net_salary'],2) ?></td>
         <td><span class="badge <?= $r['status']==='paid'?'badge-green':($r['status']==='processed'?'badge-orange':'badge-gray') ?>"><?= ucfirst($r['status']) ?></span></td>
         <td>
-        <?php if($r['status']!=='paid'): ?>
+        <?php if($r['status']==='pending' && $can_finance): ?>
+        <form method="POST" style="display:inline" onsubmit="return confirm('Approve this payroll for payment?')">
+            <input type="hidden" name="action" value="approve">
+            <input type="hidden" name="payroll_id" value="<?= $r['id'] ?>">
+            <button type="submit" class="btn btn-info btn-sm"><i class="fas fa-check"></i> Approve</button>
+        </form>
+        <?php elseif($r['status']==='processed' && $can_finance): ?>
         <form method="POST" style="display:inline" onsubmit="return confirm('Mark as paid?')">
             <input type="hidden" name="action" value="mark_paid">
             <input type="hidden" name="payroll_id" value="<?= $r['id'] ?>">
-            <button type="submit" class="btn btn-success btn-sm"><i class="fas fa-check"></i> Paid</button>
+            <button type="submit" class="btn btn-success btn-sm"><i class="fas fa-check"></i> Mark Paid</button>
         </form>
-        <?php else: ?><span style="color:var(--muted);font-size:12px">—</span><?php endif; ?>
+        <?php elseif($r['status']==='pending'): ?>
+            <span class="small-cell">Awaiting Finance approval</span>
+        <?php else: ?><span class="small-cell">—</span><?php endif; ?>
         </td>
     </tr>
     <?php endforeach; ?>
@@ -186,64 +219,35 @@ tbody tr:hover{background:#fafbfc}
 </div>
 
 <!-- Generate Modal -->
+<?php if ($can_hr): ?>
 <div class="modal-overlay" id="addModal">
 <div class="modal">
     <h3><i class="fas fa-calculator" style="color:var(--primary)"></i> Generate Payroll</h3>
+    <p class="hint">Computes pay for every active employee in the chosen period from their actual attendance. Sent to Finance for approval before payment.</p>
     <form method="POST">
     <input type="hidden" name="action" value="generate">
     <div class="form-group">
-        <label>Employee *</label>
-        <select name="employee_id" required onchange="updatePreview(this)">
-            <option value="">Select Employee</option>
-            <?php foreach($employees as $e): ?>
-            <option value="<?= $e['id'] ?>" data-salary="<?= $e['basic_salary'] ?>" data-freq="<?= $e['pay_frequency'] ?>"><?= htmlspecialchars($e['first_name'].' '.$e['last_name']) ?> — ₱<?= number_format($e['basic_salary'],0) ?>/mo</option>
-            <?php endforeach; ?>
-        </select>
+        <label>Month</label>
+        <input type="month" name="month" value="<?= date('Y-m') ?>" required>
     </div>
-    <div class="form-group"><label>Pay Period Name</label><input type="text" name="pay_period_name" placeholder="e.g. March 2026 1st Half"></div>
-    <div class="form-group"><label>Period Start *</label><input type="date" name="pay_period_start" required></div>
-    <div class="form-group"><label>Period End *</label><input type="date" name="pay_period_end" required></div>
-    <div class="preview-box" id="previewBox" style="display:none">
-        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase">Pay Preview</div>
-        <div class="preview-row"><span>Gross Pay</span><span id="pGross">—</span></div>
-        <div class="preview-row" style="color:#c53030"><span>SSS (4.5%)</span><span id="pSSS">—</span></div>
-        <div class="preview-row" style="color:#c53030"><span>PhilHealth (2%)</span><span id="pPhil">—</span></div>
-        <div class="preview-row" style="color:#c53030"><span>Pag-IBIG (2%)</span><span id="pPag">—</span></div>
-        <div class="preview-row" style="color:#c53030"><span>Withholding Tax</span><span id="pTax">—</span></div>
-        <div class="preview-row" style="color:#276749"><span>Net Pay</span><span id="pNet">—</span></div>
+    <div class="form-group">
+        <label>Pay Period</label>
+        <select name="half" required>
+            <option value="1">1st Half (1 – <?= $cutoff1 ?>)</option>
+            <option value="2">2nd Half (<?= $cutoff1+1 ?> – <?= $cutoff2 ?>)</option>
+        </select>
     </div>
     <div class="modal-footer">
         <button type="button" onclick="document.getElementById('addModal').classList.remove('active')" class="btn btn-outline">Cancel</button>
-        <button type="submit" class="btn btn-primary"><i class="fas fa-cogs"></i> Generate</button>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-cogs"></i> Generate for All Active Employees</button>
     </div>
     </form>
 </div>
 </div>
+<?php endif; ?>
 
+</div></div></div>
 <script>
-function fmt(n){return'₱'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-function updatePreview(sel){
-    const opt=sel.options[sel.selectedIndex];
-    const salary=parseFloat(opt.dataset.salary||0);
-    const freq=opt.dataset.freq||'semi_monthly';
-    if(!salary){document.getElementById('previewBox').style.display='none';return;}
-    const gross=freq==='semi_monthly'?salary/2:salary;
-    const sss=+(gross*0.045).toFixed(2);
-    const phil=+(gross*0.02).toFixed(2);
-    const pag=+(Math.min(gross,5000)*0.02).toFixed(2);
-    let tax=0;
-    if(gross>33332)tax=(gross-33332)*0.20;
-    else if(gross>8333)tax=(gross-8333)*0.15;
-    tax=+tax.toFixed(2);
-    const net=gross-sss-phil-pag-tax;
-    document.getElementById('pGross').textContent=fmt(gross);
-    document.getElementById('pSSS').textContent='-'+fmt(sss);
-    document.getElementById('pPhil').textContent='-'+fmt(phil);
-    document.getElementById('pPag').textContent='-'+fmt(pag);
-    document.getElementById('pTax').textContent='-'+fmt(tax);
-    document.getElementById('pNet').textContent=fmt(net);
-    document.getElementById('previewBox').style.display='block';
-}
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',function(e){if(e.target===this)this.classList.remove('active');}));
 </script>
 </body></html>

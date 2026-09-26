@@ -209,6 +209,8 @@ function passesCaviteLocationCheck($filePath, $mimeType, $selectedCity, $zipCode
 }
 
 function uploadProviderDocument($fieldName, $providerId, $label, $existingPath, $city, $zipCode, $businessAddress, &$error) {
+    global $appRoot;
+
     if (!isset($_FILES[$fieldName]) || !is_array($_FILES[$fieldName])) {
         return $existingPath;
     }
@@ -1025,6 +1027,13 @@ if ($profile_complete && $providerStatus === 'pending' && $success === '') {
             <div class="field-group-title">
                 <i class="fas fa-certificate"></i> Verification Documents
             </div>
+
+            <?php if (!empty($error) && (empty($existingBusinessFile) || empty($existingLicenseFile))): ?>
+            <div class="security-note" style="background:#fff7ed;border:1px solid #fdba74;color:#9a3412;">
+                <h4><i class="fas fa-triangle-exclamation"></i> Re-attach your files before submitting again</h4>
+                <p>For security, browsers clear a selected file after a failed submit. Please click "Attach File" again below and re-pick your document(s), even if you already selected one before.</p>
+            </div>
+            <?php endif; ?>
 
             <?php if (!empty($approval_notice)): ?>
             <div class="security-note" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;">

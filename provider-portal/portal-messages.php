@@ -1,18 +1,35 @@
 <?php
-// provider-portal/portal-messages.php
+// provider-portal/portal-messages.php — transaction-scoped chat (CRM /
+// technician / owner side). One thread per booking, closed on completed/
+// cancelled. Previously this page's AJAX send routed through api/messages.php,
+// which had its OWN separate copy of the access-control check — missing
+// the $is_field_tech clause added below, so a field technician's chat
+// input silently 403'd even though the page showed it to them. Now sends
+// itself (like the other rewritten chat pages), through the one shared
+// sendBookingMessage() helper — no second copy of this logic to drift.
+// See CLAUDE.md's "Recent Work Log" for the full design writeup.
 require_once 'includes/portal-auth.php';
 require_once '../config/config.php';
 require_once '../config/database.php';
+require_once '../includes/transaction_chat_helper.php';
 
 date_default_timezone_set('Asia/Manila');
 
+// Field technicians get full access alongside CRM/owner — they're the ones
+// actually on-site and often the ones who need to coordinate with the seeker.
+$is_field_tech = (($_SESSION['portal_staff_type'] ?? 'office') === 'field');
+
 // Owner and all managers can view messages
-$can_view = ($portal_role === 'owner' || $portal_dept === 'hr' || $portal_dept === 'finance' || $portal_dept === 'crm' || $portal_dept === 'all');
+$can_view = ($portal_role === 'owner' || $portal_dept === 'hr' || $portal_dept === 'finance' || $portal_dept === 'crm' || $portal_dept === 'all' || $is_field_tech);
 if (!$can_view) { header('Location: dashboard.php'); exit; }
-$can_reply = ($portal_role === 'owner' || $portal_dept === 'crm' || $portal_dept === 'all');
+$can_reply = ($portal_role === 'owner' || $portal_dept === 'crm' || $portal_dept === 'all' || $is_field_tech);
 
 $database = new Database(); $db = $database->getConnection();
 $pid = (int)$portal_provider_id;
+// Sidebar defaults to the free tier when $tier_is_paid is unset — this page
+// never loaded portal-tier.php, so a paid provider's own sidebar always
+// showed Pro nav items as locked here.
+require_once 'includes/portal-tier.php';
 
 // Get the provider's user_id (the account that receives messages from seekers)
 $prov = $db->prepare("SELECT user_id FROM providers WHERE id=:p");
@@ -22,110 +39,86 @@ $prov_user_id = (int)($prov_row['user_id'] ?? 0);
 
 if (!$prov_user_id) { echo "Provider user not found."; exit; }
 
-function portalTargetAllowed(PDO $db, int $providerId, int $providerUserId, int $targetUserId): bool {
-    if ($targetUserId <= 0 || $targetUserId === $providerUserId) return false;
-
-    $existing = $db->prepare(
-        "SELECT 1
-         FROM messages
-         WHERE (sender_id = :me AND receiver_id = :target)
-            OR (sender_id = :target2 AND receiver_id = :me2)
-         LIMIT 1"
-    );
-    $existing->execute([
-        ':me' => $providerUserId,
-        ':target' => $targetUserId,
-        ':target2' => $targetUserId,
-        ':me2' => $providerUserId
-    ]);
-    if ($existing->fetchColumn()) return true;
-
-    $booking = $db->prepare(
-        "SELECT 1
-         FROM availed_services
-         WHERE provider_id = :pid
-           AND (seeker_user_id = :uid OR user_id = :uid2)
-         LIMIT 1"
-    );
-    $booking->execute([':pid' => $providerId, ':uid' => $targetUserId, ':uid2' => $targetUserId]);
-    if ($booking->fetchColumn()) return true;
-
-    $request = $db->prepare(
-        "SELECT 1
-         FROM service_requests
-         WHERE provider_id = :pid
-           AND seeker_id = :uid
-         LIMIT 1"
-    );
-    $request->execute([':pid' => $providerId, ':uid' => $targetUserId]);
-
-    return (bool)$request->fetchColumn();
-}
+$booking_id = isset($_GET['booking']) ? (int)$_GET['booking'] : 0;
 
 // ── AJAX: reply ─────────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['message'])) {
-    if ($can_reply) {
-        $to  = (int)$_POST['to'];
-        $msg = trim($_POST['message'] ?? '');
-        if ($msg && $to && portalTargetAllowed($db, $pid, $prov_user_id, $to)) {
-            $db->prepare("INSERT INTO messages (sender_id,receiver_id,message,is_read,created_at) VALUES (:s,:r,:m,0,NOW())")
-               ->execute([':s'=>$prov_user_id,':r'=>$to,':m'=>$msg]);
-            $new_id = $db->lastInsertId();
-            header('Content-Type: application/json');
-            echo json_encode(['ok'=>true,'id'=>$new_id,'time'=>date('h:i A')]);
-            exit;
-        }
-    }
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['message']) && isset($_POST['booking_id'])) {
     header('Content-Type: application/json');
-    echo json_encode(['ok'=>false]);
+    if (!$can_reply) {
+        echo json_encode(['ok' => false, 'error' => 'Only owner, CRM, and field technicians can reply.']);
+        exit;
+    }
+    $post_booking = (int)$_POST['booking_id'];
+    $post_msg     = trim((string)$_POST['message']);
+    $ctx = getBookingChatContext($db, $post_booking);
+    if (!$ctx || (int)$ctx['provider_id'] !== $pid) {
+        echo json_encode(['ok' => false, 'error' => 'Booking not found.']);
+        exit;
+    }
+    $result = sendBookingMessage($db, $post_booking, $prov_user_id, (int)$ctx['seeker_uid'], $post_msg);
+    echo json_encode($result);
     exit;
 }
 
-// ── Mark as read ─────────────────────────────────────────────
-$to_user = isset($_GET['to']) ? (int)$_GET['to'] : 0;
-if ($to_user && !portalTargetAllowed($db, $pid, $prov_user_id, $to_user)) {
-    $to_user = 0;
-}
-if ($to_user) {
-    $db->prepare("UPDATE messages SET is_read=1 WHERE sender_id=:s AND receiver_id=:me")
-       ->execute([':s'=>$to_user,':me'=>$prov_user_id]);
+// AJAX poll — short-interval fetch instead of WebSockets, so this keeps
+// working on ordinary shared PHP hosting with no persistent process.
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['poll']) && isset($_GET['booking'])) {
+    header('Content-Type: application/json');
+    $pBooking = (int)$_GET['booking'];
+    $pSince   = (int)($_GET['since'] ?? 0);
+    $ctx = getBookingChatContext($db, $pBooking);
+    if (!$ctx || (int)$ctx['provider_id'] !== $pid) {
+        echo json_encode(['ok' => false, 'error' => 'Booking not found.']);
+        exit;
+    }
+    markBookingMessagesRead($db, $pBooking, $prov_user_id);
+    $newMsgs = array_map(static function ($m) use ($prov_user_id) {
+        return [
+            'id' => (int)$m['id'],
+            'sender_id' => (int)$m['sender_id'],
+            'sender_name' => trim($m['first_name'] . ' ' . $m['last_name']),
+            'message' => $m['message'],
+            'mine' => (int)$m['sender_id'] === $prov_user_id,
+            'time_label' => date('h:i A', strtotime($m['created_at'])),
+        ];
+    }, getBookingMessagesSince($db, $pBooking, $pSince));
+    echo json_encode([
+        'ok' => true,
+        'messages' => $newMsgs,
+        'status' => $ctx['status'],
+        'status_label' => ucwords(str_replace('_', ' ', $ctx['status'])),
+        'chat_open' => chatIsOpenForBooking($ctx),
+    ]);
+    exit;
 }
 
-// ── Conversations list ────────────────────────────────────────
-$convos = $db->prepare("
-    SELECT
-        u.id, u.first_name, u.last_name, u.user_type,
-        (SELECT message FROM messages WHERE (sender_id=u.id AND receiver_id=:puid) OR (sender_id=:puid2 AND receiver_id=u.id) ORDER BY created_at DESC LIMIT 1) AS last_msg,
-        (SELECT created_at FROM messages WHERE (sender_id=u.id AND receiver_id=:puid3) OR (sender_id=:puid4 AND receiver_id=u.id) ORDER BY created_at DESC LIMIT 1) AS last_time,
-        (SELECT COUNT(*) FROM messages WHERE sender_id=u.id AND receiver_id=:puid5 AND is_read=0) AS unread
-    FROM users u
-    WHERE u.id IN (
-        SELECT DISTINCT CASE WHEN sender_id=:puid6 THEN receiver_id ELSE sender_id END
-        FROM messages WHERE sender_id=:puid7 OR receiver_id=:puid8
-    )
-    ORDER BY last_time DESC
-");
-$convos->execute([':puid'=>$prov_user_id,':puid2'=>$prov_user_id,':puid3'=>$prov_user_id,
-                  ':puid4'=>$prov_user_id,':puid5'=>$prov_user_id,':puid6'=>$prov_user_id,
-                  ':puid7'=>$prov_user_id,':puid8'=>$prov_user_id]);
-$convo_list = $convos->fetchAll(PDO::FETCH_ASSOC);
+$convo_list = getProviderBookingThreads($db, $pid);
+$allowed_ids = array_map(static fn($r) => (int)$r['booking_id'], $convo_list);
+if ($booking_id > 0 && !in_array($booking_id, $allowed_ids, true)) {
+    $booking_id = 0;
+}
+if ($booking_id <= 0 && !empty($convo_list)) {
+    $booking_id = (int)$convo_list[0]['booking_id'];
+}
 
 $total_unread = array_sum(array_column($convo_list, 'unread'));
 
 // ── Chat messages ─────────────────────────────────────────────
 $chat = [];
 $other = null;
-if ($to_user) {
-    $s = $db->prepare("SELECT id,first_name,last_name,user_type FROM users WHERE id=:id");
-    $s->execute([':id'=>$to_user]);
-    $other = $s->fetch(PDO::FETCH_ASSOC);
-
-    $c = $db->prepare("SELECT m.*, u.first_name, u.last_name FROM messages m JOIN users u ON m.sender_id=u.id
-                        WHERE (m.sender_id=:puid AND m.receiver_id=:to) OR (m.sender_id=:to2 AND m.receiver_id=:puid2)
-                        ORDER BY m.created_at ASC");
-    $c->execute([':puid'=>$prov_user_id,':to'=>$to_user,':to2'=>$to_user,':puid2'=>$prov_user_id]);
-    $chat = $c->fetchAll(PDO::FETCH_ASSOC);
+$chatOpen = false;
+if ($booking_id > 0) {
+    $other = getBookingChatContext($db, $booking_id);
+    if ($other && (int)$other['provider_id'] === $pid) {
+        markBookingMessagesRead($db, $booking_id, $prov_user_id);
+        $chat = getBookingMessages($db, $booking_id);
+        $chatOpen = chatIsOpenForBooking($other);
+    } else {
+        $other = null;
+        $booking_id = 0;
+    }
 }
+$to_user = $booking_id; // kept for the (unchanged) mobile-narrow CSS check below
 
 function timeAgo($dt) {
     $diff = time() - strtotime($dt);
@@ -245,16 +238,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:#2d3748}
         </div>
         <div class="conv-items">
         <?php if (empty($convo_list)): ?>
-            <div class="conv-empty"><i class="fas fa-inbox"></i>No messages yet</div>
+            <div class="conv-empty"><i class="fas fa-inbox"></i>No bookings yet</div>
         <?php endif; ?>
         <?php foreach ($convo_list as $c):
-            $init = strtoupper(substr($c['first_name'],0,1).substr($c['last_name'],0,1));
+            $init = strtoupper(substr((string)($c['seeker_name'] ?? 'U'), 0, 1));
+            $cOpen = chatIsOpenForBooking($c);
         ?>
-        <a href="portal-messages.php?to=<?= $c['id'] ?>" class="conv-item <?= $to_user==$c['id']?'active':'' ?>" data-name="<?= htmlspecialchars(strtolower($c['first_name'].' '.$c['last_name'])) ?>">
+        <a href="portal-messages.php?booking=<?= (int)$c['booking_id'] ?>" class="conv-item <?= $booking_id==$c['booking_id']?'active':'' ?>" data-name="<?= htmlspecialchars(strtolower(($c['seeker_name'] ?? '') . ' ' . ($c['service_name'] ?? ''))) ?>">
             <div class="conv-avatar"><?= $init ?></div>
             <div class="conv-info">
-                <div class="conv-name"><?= htmlspecialchars($c['first_name'].' '.$c['last_name']) ?></div>
-                <div class="conv-preview"><?= htmlspecialchars(mb_substr($c['last_msg'] ?? '—', 0, 40)) ?></div>
+                <div class="conv-name"><?= htmlspecialchars((string)($c['seeker_name'] ?? 'Seeker')) ?></div>
+                <div class="conv-preview"><span class="thread-status-dot <?= $cOpen ? 'open' : 'closed' ?>"></span><?= htmlspecialchars((string)($c['service_name'] ?: 'Service')) ?> &middot; <?= htmlspecialchars(ucwords(str_replace('_',' ',(string)$c['status']))) ?></div>
+                <div class="conv-preview" style="opacity:.75;"><?= htmlspecialchars(mb_substr($c['last_msg'] ?? 'No messages yet', 0, 40)) ?></div>
             </div>
             <div class="conv-meta">
                 <?php if ($c['last_time']): ?><div class="conv-time"><?= timeAgo($c['last_time']) ?></div><?php endif; ?>
@@ -269,10 +264,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:#2d3748}
     <div class="chat-area">
     <?php if ($other): ?>
         <div class="chat-header">
-            <div class="chat-hav"><?= strtoupper(substr($other['first_name'],0,1).substr($other['last_name'],0,1)) ?></div>
-            <div>
-                <div class="chat-hname"><?= htmlspecialchars($other['first_name'].' '.$other['last_name']) ?></div>
-                <div class="chat-hsub"><?= ucfirst($other['user_type']) ?> · <?= count($chat) ?> message(s)</div>
+            <div class="chat-hav"><?= strtoupper(substr((string)$other['full_name'], 0, 1)) ?></div>
+            <div style="flex:1;min-width:0;">
+                <div class="chat-hname"><?= htmlspecialchars((string)$other['full_name']) ?></div>
+                <div class="chat-hsub">
+                    <?= htmlspecialchars((string)($other['service_name'] ?: 'Service')) ?> &middot;
+                    <span id="chatStatusBadge"><?= htmlspecialchars(ucwords(str_replace('_',' ',(string)$other['status']))) ?></span>
+                    &middot; &#8369;<?= number_format((float)$other['total_amount'], 2) ?>
+                    &middot; <?= htmlspecialchars(ucfirst((string)$other['payment_status'])) ?>
+                </div>
             </div>
             <?php if (!$can_reply): ?>
             <div class="ro-badge"><i class="fas fa-eye"></i> Read-only</div>
@@ -302,7 +302,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:#2d3748}
         <?php endif; ?>
         </div>
 
-        <?php if ($can_reply): ?>
+        <?php if (!$chatOpen): ?>
+        <div class="readonly-bar"><i class="fas fa-lock"></i> This conversation is closed because the service is <?= htmlspecialchars((string)$other['status']) ?>.</div>
+        <?php elseif ($can_reply): ?>
         <div class="chat-input">
             <div id="msgForm">
                 <div style="display:flex;gap:10px;align-items:flex-end">
@@ -313,7 +315,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:#2d3748}
         </div>
         <?php else: ?>
         <div class="readonly-bar">
-            <i class="fas fa-lock"></i> Only owner and CRM users can reply. You have read-only access.
+            <i class="fas fa-lock"></i> Only owner, CRM, and field technicians can reply. You have read-only access.
         </div>
         <?php endif; ?>
 
@@ -342,9 +344,17 @@ window.addEventListener('load', function () {
 
 const ta  = document.getElementById('msgInput');
 const btn = document.getElementById('sendBtn');
-const toUser = <?php echo $to_user ?: 0; ?>;
+const BOOKING_ID = <?php echo (int)$booking_id; ?>;
+const ME_ID = <?php echo (int)$prov_user_id; ?>;
 const provInitial = <?php echo json_encode(strtoupper(substr($portal_company, 0, 1))); ?>;
-const MSG_API_URL = <?php echo json_encode(SITE_URL . '/api/messages.php'); ?>;
+// Plain relative filename, not appUrl() — this page was never a legacy
+// root-level alias (canonicalAppRoute()'s map only covers seeker/provider/
+// auth/browse pages), so appUrl('portal-messages.php') silently resolved to
+// the wrong path (site root, missing the provider-portal/ prefix), 404ing
+// every send/poll fetch. A bare relative name resolves correctly since this
+// script only ever runs loaded from its own directory — same convention the
+// conversation-list links in this file already use (see the <a href> above).
+const MSG_ENDPOINT = 'portal-messages.php';
 
 function focusInputNoScroll() {
     if (!ta) return;
@@ -378,14 +388,17 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
-function appendBubble(msg, time, stickToBottom = true) {
+function appendBubble(payload, stickToBottom = true) {
+    if (!chatBox) return;
+    const mine = Number(payload.sender_id) === ME_ID;
     const row = document.createElement('div');
-    row.className = 'msg-row mine';
+    row.className = 'msg-row' + (mine ? ' mine' : '');
+    const initial = mine ? provInitial : escapeHtml((payload.sender_name || '?').substring(0, 1).toUpperCase());
     row.innerHTML = `
-        <div class="msg-av me">${provInitial}</div>
+        <div class="msg-av ${mine ? 'me' : ''}">${initial}</div>
         <div>
-            <div class="bubble me">${escapeHtml(msg).replace(/\n/g,'<br>')}</div>
-            <div class="msg-time r">${time}</div>
+            <div class="bubble ${mine ? 'me' : 'them'}">${escapeHtml(payload.message).replace(/\n/g,'<br>')}</div>
+            <div class="msg-time ${mine ? 'r' : ''}">${escapeHtml(payload.time_label || '')}</div>
         </div>`;
     chatBox.appendChild(row);
     if (stickToBottom) {
@@ -394,7 +407,7 @@ function appendBubble(msg, time, stickToBottom = true) {
 }
 
 async function sendMessage() {
-    if (!ta || !toUser) return;
+    if (!ta || !BOOKING_ID) return;
     const msg = ta.value.trim();
     if (!msg) return;
     const winY = window.scrollY || 0;
@@ -403,19 +416,21 @@ async function sendMessage() {
     autoResize();
     if (btn) btn.disabled = true;
 
-    const fd = new FormData();
-    fd.append('action', 'send');
-    fd.append('message', msg);
-    fd.append('to', toUser);
-
     try {
-        const res = await fetch(MSG_API_URL, { method:'POST', body: fd, credentials: 'same-origin' });
+        const body = new URLSearchParams();
+        body.set('booking_id', String(BOOKING_ID));
+        body.set('message', msg);
+        const res = await fetch(MSG_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
         const data = await res.json();
-        if (data.ok) {
-            appendBubble(msg, data.time, stickToBottom);
-        } else {
+        if (!data.ok) {
             ta.value = msg;
             alert(data.error || 'Unable to send message right now.');
+        }
+        // No local append — the next poll tick (or the sender's own optimistic
+        // echo below) renders it, so every viewer sees identical output.
+        else {
+            appendBubble({ sender_id: ME_ID, message: msg, time_label: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) }, stickToBottom);
+            lastMsgId = Math.max(lastMsgId, data.id || 0);
         }
     } catch(e) {
         ta.value = msg;
@@ -440,6 +455,41 @@ function filterConvos(q) {
         el.style.display = el.dataset.name.includes(q.toLowerCase()) ? '' : 'none';
     });
 }
+
+// ── Live updates via short-interval polling (no WebSocket/persistent
+// process needed — works on ordinary shared PHP hosting) ────────────────
+let lastMsgId = <?php echo !empty($chat) ? (int)end($chat)['id'] : 0; ?>;
+<?php if ($booking_id): ?>
+(function () {
+    let knownStatus = <?php echo json_encode((string)$other['status']); ?>;
+    let inFlight = false;
+
+    async function poll() {
+        if (inFlight || document.hidden) return;
+        inFlight = true;
+        try {
+            const res = await fetch(`${MSG_ENDPOINT}?poll=1&booking=${BOOKING_ID}&since=${lastMsgId}`);
+            const data = await res.json();
+            if (data.ok) {
+                (data.messages || []).forEach(function (m) {
+                    if (m.mine) return;
+                    appendBubble(m);
+                    lastMsgId = Math.max(lastMsgId, m.id);
+                });
+                const badge = document.getElementById('chatStatusBadge');
+                if (badge && data.status_label) badge.textContent = data.status_label;
+                if (data.status !== knownStatus) {
+                    knownStatus = data.status;
+                    window.location.reload();
+                }
+            }
+        } catch (e) { /* next tick retries */ }
+        inFlight = false;
+    }
+    setInterval(poll, 4000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+})();
+<?php endif; ?>
 </script>
 </body>
 </html>

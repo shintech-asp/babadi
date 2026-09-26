@@ -23,7 +23,7 @@ $stmt->execute();
 $provider = $stmt->fetch(PDO::FETCH_ASSOC);
 
 // Stats
-$query = "SELECT COUNT(*) as total FROM service_listings WHERE provider_id = :provider_id";
+$query = "SELECT COUNT(*) as total FROM services WHERE provider_id = :provider_id";
 $stmt = $db->prepare($query); $stmt->bindParam(':provider_id', $provider_id); $stmt->execute();
 $total_services = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
@@ -44,20 +44,20 @@ $stmt = $db->prepare($query); $stmt->bindParam(':provider_id', $provider_id); $s
 $rating_stats = $stmt->fetch(PDO::FETCH_ASSOC);
 
 // Recent requests
-$query = "SELECT sr.*, sl.title, u.first_name, u.last_name, u.phone 
-          FROM service_requests sr 
-          LEFT JOIN service_listings sl ON sr.listing_id = sl.id 
-          JOIN users u ON sr.seeker_id = u.id 
+$query = "SELECT sr.*, sl.service_name AS title, u.first_name, u.last_name, u.phone
+          FROM service_requests sr
+          LEFT JOIN services sl ON sr.listing_id = sl.id
+          JOIN users u ON sr.seeker_id = u.id
           WHERE sr.provider_id = (SELECT user_id FROM providers WHERE id = :provider_id)
           ORDER BY sr.created_at DESC LIMIT 8";
 $stmt = $db->prepare($query); $stmt->bindParam(':provider_id', $provider_id); $stmt->execute();
 $recent_requests = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Services
-$query = "SELECT sl.*, sc.name as category_name 
-          FROM service_listings sl
-          JOIN service_categories sc ON sl.category_id = sc.id
-          WHERE sl.provider_id = :provider_id 
+$query = "SELECT sl.*, sl.service_name AS title, sc.name as category_name
+          FROM services sl
+          LEFT JOIN service_categories sc ON sl.category_id = sc.id
+          WHERE sl.provider_id = :provider_id
           ORDER BY sl.created_at DESC LIMIT 6";
 $stmt = $db->prepare($query); $stmt->bindParam(':provider_id', $provider_id); $stmt->execute();
 $services = $stmt->fetchAll(PDO::FETCH_ASSOC);

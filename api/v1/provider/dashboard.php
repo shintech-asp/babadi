@@ -12,7 +12,10 @@ $stmt = $db->prepare('SELECT COUNT(*) FROM availed_services WHERE provider_id = 
 $stmt->execute([':pid' => $pid, ':status' => 'pending']);
 $pending_requests = (int) $stmt->fetchColumn();
 
-$stmt = $db->prepare('SELECT COUNT(*) FROM availed_services WHERE provider_id = :pid AND status IN (\'accepted\', \'preparing\', \'starting\', \'ongoing\')');
+// Includes both the canonical 'on_going' spelling and the legacy 'ongoing'
+// one the web app still writes in places — see CLAUDE.md "Booking status
+// literal drift".
+$stmt = $db->prepare('SELECT COUNT(*) FROM availed_services WHERE provider_id = :pid AND status IN (\'accepted\', \'preparing\', \'starting\', \'on_going\', \'ongoing\', \'awaiting_agreement\', \'revising\')');
 $stmt->execute([':pid' => $pid]);
 $active_bookings = (int) $stmt->fetchColumn();
 
@@ -20,7 +23,7 @@ $stmt = $db->prepare('SELECT COUNT(*) FROM availed_services WHERE provider_id = 
 $stmt->execute([':pid' => $pid, ':status' => 'completed']);
 $completed_jobs = (int) $stmt->fetchColumn();
 
-$stmt = $db->prepare('SELECT COUNT(*) FROM service_listings WHERE provider_id = :pid AND status = :status');
+$stmt = $db->prepare('SELECT COUNT(*) FROM services WHERE provider_id = :pid AND status = :status');
 $stmt->execute([':pid' => $pid, ':status' => 'active']);
 $active_listings = (int) $stmt->fetchColumn();
 
@@ -43,5 +46,7 @@ ok([
         'avg_rating'       => $avg_rating,
         'review_count'     => $review_count,
         'recent_requests'  => $recent_requests,
+        'provider_status'  => $p['status'],
+        'company_name'     => $p['company_name'],
     ]
 ]);

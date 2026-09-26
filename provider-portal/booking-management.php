@@ -7,9 +7,18 @@ require_once '../config/database.php';
 require_once '../provider-portal/includes/portal-auth.php';
 require_once '../includes/booking_workflow_helper.php';
 
-$pdo     = getDBConnection();
+// getDBConnection() was never a real function anywhere in this codebase (every
+// other page uses the Database class below) — this made the page fatal on
+// every single load, unrelated to the tier-sidebar fix also made here.
+$database = new Database();
+$pdo = $db = $database->getConnection();
 $staffId = $_SESSION['staff_id'] ?? $_SESSION['portal_staff_id'] ?? 0;
 $role    = $_SESSION['portal_role'] ?? 'hr';
+
+// Sidebar defaults to the free tier when $tier_is_paid is unset — this page
+// never loaded portal-tier.php, so a paid provider's own sidebar always
+// showed Pro nav items as locked here.
+require_once 'includes/portal-tier.php';
 
 // Get provider_id
 $provRow = $pdo->prepare("SELECT provider_id FROM provider_staff WHERE id = ?");

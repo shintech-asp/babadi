@@ -92,6 +92,18 @@ $provider_user_id  = (int)($prov['user_id'] ?? 0);
 $company_name      = $prov['company_name'] ?? 'Provider';
 $auto_accept_on_request = requestServiceProviderSetting($db, $provider_id, 'auto_accept_on_request', '0') === '1';
 
+// Services opted into the two-date inspection flow (see CLAUDE.md's "Recent
+// Work Log" for the full design): the date the seeker picked here is treated
+// as the requested Inspection Date, not a firm Working Date. The technician
+// proposes the actual working date + final price after inspecting on-site.
+$requires_inspection = false;
+if ($service_id) {
+    $svcStmt = $db->prepare("SELECT requires_inspection FROM services WHERE id = :id AND provider_id = :pid LIMIT 1");
+    $svcStmt->execute([':id' => $service_id, ':pid' => $provider_id]);
+    $requires_inspection = ((int)($svcStmt->fetchColumn() ?: 0)) === 1;
+}
+$inspection_date = $requires_inspection ? $preferred_date : null;
+
 // ── Insert booking as 'pending' — NO payment ─────────────────
 // availed_services.provider_id = providers.id  (NOT providers.user_id)
 // availed_services.user_id     = seeker's users.id (legacy column)
@@ -101,7 +113,7 @@ try {
         INSERT INTO availed_services
             (provider_id, user_id, seeker_user_id,
              service_id, service_name, full_name, contact_number,
-             preferred_date, preferred_time, address, notes,
+             preferred_date, preferred_time, inspection_date, address, notes,
              contract_text_snapshot, seeker_agreement_confirmed, seeker_signature, seeker_signed_at,
              status, payment_method, total_amount,
              downpayment_amount, remaining_amount,
@@ -109,7 +121,7 @@ try {
         VALUES
             (:pid, :uid, :uid2,
              :sid, :sn, :fn, :cn,
-             :pd, :pt, :addr, :notes,
+             :pd, :pt, :idate, :addr, :notes,
              :cts, :ack, :sig, NOW(),
              'pending', :pm, :ta,
              :dpa, :ra,
@@ -124,6 +136,7 @@ try {
         ':cn'   => $contact_number,
         ':pd'   => $preferred_date,
         ':pt'   => $preferred_time,
+        ':idate'=> $inspection_date,
         ':addr' => $address,
         ':notes'=> $notes,
         ':cts'  => $contract_text,
@@ -146,7 +159,9 @@ try {
 $notif_title = "New Service Request #$booking_id";
 $notif_msg   = htmlspecialchars($full_name) . " has requested your service" .
                ($service_name ? " ({$service_name})" : '') .
-               " for " . date('M j, Y', strtotime($preferred_date)) .
+               ($requires_inspection
+                   ? " for an on-site inspection on " . date('M j, Y', strtotime($preferred_date))
+                   : " for " . date('M j, Y', strtotime($preferred_date))) .
                ". Please review and accept or reject.";
 
 try {

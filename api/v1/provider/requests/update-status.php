@@ -12,9 +12,12 @@ $status = req_inp('status', 'Status');
 $notes  = (string)(inp('notes') ?? '');
 
 // DB-canonical values only. 'on_going' must come via scan-qr.php (QR handshake).
+// 'preparing' is deliberately excluded — it must come via prepare.php, which
+// assigns staff/equipment BEFORE the transition (this endpoint has no idea
+// about inventory; letting it flip straight to 'preparing' was exactly what
+// let equipment silently never get checked out on mobile bookings before).
 $allowed = [
     BK_ACCEPTED,
-    BK_PREPARING,
     BK_STARTING,
     BK_WAITING_REMAINING,
     BK_WAITING_SEEKER_CONFIRM,
@@ -23,6 +26,9 @@ $allowed = [
     BK_CANCELLED,
 ];
 
+if ($status === BK_PREPARING) {
+    fail('Use /provider/requests/prepare.php to assign staff and equipment — that also advances the booking to Preparing.', 422);
+}
 if (!in_array($status, $allowed, true)) {
     fail('Invalid status value.');
 }
@@ -39,4 +45,4 @@ if (!$ok) {
     fail('Status transition not allowed from current state.', 422);
 }
 
-ok(['message' => 'Status updated', 'status' => $status]);
+ok(['data' => ['message' => 'Status updated', 'status' => $status]]);

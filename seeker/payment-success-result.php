@@ -366,12 +366,18 @@ $use_seeker_unified_ui = true;
                     <div class="panel you">
                         <h3>Your Code</h3>
                         <span class="code"><?php echo htmlspecialchars($seekerCn); ?></span>
-                        <div>Show this to the provider on service day.</div>
+                        <div>Show / tell this to your technician on service day.</div>
                     </div>
                     <div class="panel provider">
-                        <h3>Provider Code</h3>
-                        <span class="code"><?php echo htmlspecialchars($providerCn); ?></span>
-                        <div>Enter this when the technician arrives.</div>
+                        <h3>Provider's Code</h3>
+                        <!-- Value intentionally never echoed here — the seeker learns the
+                             provider's code verbally from the technician on arrival, which
+                             is the whole point of the dual-code handshake (proves it's
+                             genuinely that technician). Matches the same masked display on
+                             seeker/my-requests.php — see CLAUDE.md's "Dual Control Number
+                             Verification" write-up. -->
+                        <span class="code" style="letter-spacing:4px;opacity:.5;">••••••••••</span>
+                        <div>Get this from your technician when they arrive.</div>
                     </div>
                 </div>
             <?php endif; ?>

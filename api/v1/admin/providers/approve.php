@@ -33,4 +33,4 @@ $stmt->execute([
 
 if ($stmt->rowCount() === 0) fail('Provider not found or no change made', 404);
 
-ok(['message' => 'Provider approved']);
+ok(['data' => ['message' => 'Provider approved']]);

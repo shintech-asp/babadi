@@ -7,8 +7,13 @@ require_once '../../config/database.php';
 $database = new Database(); $db = $database->getConnection();
 
 // ── Stats ─────────────────────────────────────────────────────
-$total_income   = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM income_records WHERE YEAR(date)=YEAR(NOW())")->fetchColumn();
-$total_expenses = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM expense_records WHERE YEAR(date)=YEAR(NOW()) AND status='approved'")->fetchColumn();
+// income_records/expense_records date columns are income_date/expense_date,
+// not "date". expense_records also has no status column — every row already
+// represents a finalized expense (see admin/finance/expenses.php's Add
+// Expense handler, which never wrote anything else), so the old
+// "AND status='approved'" filter is just dropped rather than invented.
+$total_income   = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM income_records WHERE YEAR(income_date)=YEAR(NOW())")->fetchColumn();
+$total_expenses = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM expense_records WHERE YEAR(expense_date)=YEAR(NOW())")->fetchColumn();
 $net_profit     = $total_income - $total_expenses;
 $pending_budget = (int)$db->query("SELECT COUNT(*) FROM budget_requests WHERE status='pending'")->fetchColumn();
 
@@ -21,19 +26,23 @@ for ($i = 5; $i >= 0; $i--) {
     $m = date('Y-m', strtotime("-$i months"));
     $label = date('M Y', strtotime("-$i months"));
     $chart_labels[] = $label;
-    $inc = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM income_records WHERE DATE_FORMAT(date,'%Y-%m')='$m'")->fetchColumn();
+    $inc = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM income_records WHERE DATE_FORMAT(income_date,'%Y-%m')='$m'")->fetchColumn();
     $inc += (float)$db->query("SELECT COALESCE(SUM(total_amount),0) FROM availed_services WHERE status='completed' AND DATE_FORMAT(created_at,'%Y-%m')='$m'")->fetchColumn();
-    $exp = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM expense_records WHERE DATE_FORMAT(date,'%Y-%m')='$m' AND status='approved'")->fetchColumn();
+    $exp = (float)$db->query("SELECT COALESCE(SUM(amount),0) FROM expense_records WHERE DATE_FORMAT(expense_date,'%Y-%m')='$m'")->fetchColumn();
     $chart_income[]  = round($inc, 2);
     $chart_expense[] = round($exp, 2);
 }
 
 // ── Expense breakdown by category ─────────────────────────────
-$exp_cats = $db->query("SELECT category, SUM(amount) as total FROM expense_records WHERE YEAR(date)=YEAR(NOW()) AND status='approved' GROUP BY category ORDER BY total DESC")->fetchAll(PDO::FETCH_ASSOC);
+$exp_cats = $db->query("SELECT category, SUM(amount) as total FROM expense_records WHERE YEAR(expense_date)=YEAR(NOW()) GROUP BY category ORDER BY total DESC")->fetchAll(PDO::FETCH_ASSOC);
 
 // ── Recent transactions ───────────────────────────────────────
-$recent_inc = $db->query("SELECT *, 'income' as rec_type FROM income_records ORDER BY created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
-$recent_exp = $db->query("SELECT *, 'expense' as rec_type FROM expense_records ORDER BY created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+// Aliased to a common "date" key so the merged $transactions list below
+// (income + expense rows mixed together) can read $t['date'] either way.
+// income_records has no category column (income_type is its equivalent) —
+// aliased so the shared display table's Category cell isn't blank for income rows.
+$recent_inc = $db->query("SELECT *, income_date AS date, income_type AS category, 'income' as rec_type FROM income_records ORDER BY created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+$recent_exp = $db->query("SELECT *, expense_date AS date, 'expense' as rec_type FROM expense_records ORDER BY created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
 $transactions = array_merge($recent_inc, $recent_exp);
 usort($transactions, fn($a,$b) => strtotime($b['created_at']) - strtotime($a['created_at']));
 $transactions = array_slice($transactions, 0, 10);

@@ -204,6 +204,79 @@ class EmailSender {
         }
     }
     
+    public function sendCustomEmail($to_email, $to_name, $subject, $body_text, $from_name = null, $cta_label = null, $cta_url = null) {
+        $mail = $this->getMailer();
+
+        try {
+            $displayFrom = $from_name ?: SITE_NAME;
+
+            $mail->setFrom(NOREPLY_EMAIL, $displayFrom);
+            $mail->addAddress($to_email, $to_name);
+            $mail->Subject = $subject;
+
+            $safeBody = nl2br(htmlspecialchars($body_text));
+
+            $ctaHtml = '';
+            $ctaAlt  = '';
+            if ($cta_url) {
+                $safeUrl   = htmlspecialchars($cta_url);
+                $safeLabel = htmlspecialchars($cta_label ?: 'View & Book');
+                $ctaHtml = '
+                    <p style="text-align:center;margin:26px 0 8px;">
+                        <a href="' . $safeUrl . '" style="background:#2E8B57;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;">' . $safeLabel . '</a>
+                    </p>
+                    <p style="text-align:center;font-size:11px;color:#999;">Or copy this link: <a href="' . $safeUrl . '" style="color:#2E8B57;">' . $safeUrl . '</a></p>';
+                $ctaAlt = "\n\n" . ($cta_label ?: 'View & Book') . ": " . $cta_url;
+            }
+
+            $message = '
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>' . htmlspecialchars($subject) . '</title>
+                <style>
+                    body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }
+                    .container { max-width: 600px; background: white; margin: 0 auto; border-radius: 10px; overflow: hidden; }
+                    .header { background: #2E8B57; color: white; padding: 20px; text-align: center; }
+                    .content { padding: 30px; line-height: 1.6; color: #333; }
+                    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; background: #f8f9fa; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>' . htmlspecialchars($displayFrom) . '</h1>
+                    </div>
+                    <div class="content">
+                        <p>Hello <strong>' . htmlspecialchars($to_name) . '</strong>,</p>
+                        <p>' . $safeBody . '</p>
+                        ' . $ctaHtml . '
+                    </div>
+                    <div class="footer">
+                        <p>Sent via ' . SITE_NAME . ' &middot; &copy; ' . date('Y') . '</p>
+                    </div>
+                </div>
+            </body>
+            </html>';
+
+            $mail->isHTML(true);
+            $mail->Body = $message;
+            $mail->AltBody = $body_text . $ctaAlt;
+
+            return $mail->send();
+
+        } catch (Exception $e) {
+            $errorMsg = "Custom email sending failed for $to_email: " . $e->getMessage();
+            if (isset($mail)) {
+                $errorMsg .= " | PHPMailer Error: " . $mail->ErrorInfo;
+            }
+            error_log($errorMsg);
+            $this->lastError = $errorMsg;
+            return false;
+        }
+    }
+
     public function sendOTPEmail($to_email, $to_name, $otp) {
         $mail = $this->getMailer();
         

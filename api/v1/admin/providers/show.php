@@ -58,7 +58,7 @@ $verStatus = $row['verification_status'] ?: (
 // Counts
 $countStmt = db()->prepare(
     "SELECT
-         (SELECT COUNT(*) FROM service_listings  WHERE provider_id = :id)                                    AS listings_count,
+         (SELECT COUNT(*) FROM services  WHERE provider_id = :id)                                    AS listings_count,
          (SELECT COUNT(*) FROM availed_services  WHERE provider_id = :id)                                    AS total_bookings,
          (SELECT COUNT(*) FROM availed_services  WHERE provider_id = :id AND status = 'completed')           AS completed_bookings"
 );

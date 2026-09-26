@@ -37,14 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $filter = $_GET['status'] ?? '';
-$sql = "SELECT lr.*, e.first_name, e.last_name, e.employee_code, e.department FROM leave_requests lr JOIN employees e ON lr.employee_id=e.id WHERE 1=1";
+// employees has no employee_code column — employee_id is the real code column.
+$sql = "SELECT lr.*, e.first_name, e.last_name, e.employee_id AS employee_code, e.department FROM leave_requests lr JOIN employees e ON lr.employee_id=e.id WHERE 1=1";
 $params = [];
 if ($filter) { $sql .= " AND lr.status=:s"; $params[':s']=$filter; }
 $sql .= " ORDER BY lr.created_at DESC";
 $stmt = $db->prepare($sql); $stmt->execute($params);
 $requests = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$employees = $db->query("SELECT id,employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
+$employees = $db->query("SELECT id,employee_id AS employee_code,first_name,last_name FROM employees WHERE status='active' ORDER BY first_name")->fetchAll(PDO::FETCH_ASSOC);
 $active_menu = 'hr_requests';
 ?>
 <!DOCTYPE html><html lang="en"><head>

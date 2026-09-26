@@ -35,7 +35,7 @@ $stmt = $pdo->prepare(
          u_p.last_name    AS provider_last_name,
          u_p.email        AS provider_email,
          -- Listing
-         sl.title         AS listing_title,
+         sl.service_name  AS listing_title,
          sl.price         AS listing_price,
          sl.pricing_type  AS listing_pricing_type,
          sl.images        AS listing_images
@@ -43,7 +43,7 @@ $stmt = $pdo->prepare(
      JOIN users u_s     ON u_s.id = COALESCE(av.seeker_user_id, av.user_id)
      JOIN providers p   ON p.id   = av.provider_id
      JOIN users u_p     ON u_p.id = p.user_id
-     LEFT JOIN service_listings sl ON sl.id = av.service_id
+     LEFT JOIN services sl ON sl.id = av.service_id
      WHERE av.id = :id
      LIMIT 1"
 );

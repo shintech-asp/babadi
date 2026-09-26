@@ -27,7 +27,7 @@ if (!$provider) {
 }
 
 // Get provider's services
-$query = "SELECT * FROM service_listings WHERE provider_id = :provider_id AND status = 'active' ORDER BY created_at DESC";
+$query = "SELECT *, service_name AS title FROM services WHERE provider_id = :provider_id AND status = 'active' ORDER BY created_at DESC";
 $stmt = $db->prepare($query);
 $stmt->bindParam(':provider_id', $_GET['id']);
 $stmt->execute();

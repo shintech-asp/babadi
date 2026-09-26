@@ -45,6 +45,15 @@ $staff_id    = $_SESSION['portal_staff_id'];
 $seeker_uid  = (int)($booking['seeker_user_id'] ?? $booking['user_id'] ?? 0);
 $provider_id = (int)$_SESSION['portal_provider_id'];
 
+// availed_services has no email column — looked up separately so the PayMongo
+// billing payload below can pre-fill it instead of leaving it blank.
+$seeker_email = null;
+if ($seeker_uid) {
+    $emailStmt = $db->prepare("SELECT email FROM users WHERE id = :id");
+    $emailStmt->execute([':id' => $seeker_uid]);
+    $seeker_email = $emailStmt->fetchColumn() ?: null;
+}
+
 // ── ACCEPT ────────────────────────────────────────────────────
 if ($action === 'accept') {
 
@@ -80,12 +89,12 @@ if ($action === 'accept') {
         $cancel_url  = SITE_URL . "/payment-cancel.php?booking_id=$booking_id";
         $label       = "Booking #{$booking_id}" . ($booking['service_name'] ? " — {$booking['service_name']}" : '');
 
+        $billing = ['name' => $booking['full_name']];
+        if (!empty($seeker_email))            $billing['email'] = $seeker_email;
+        if (!empty($booking['contact_number'])) $billing['phone'] = $booking['contact_number'];
+
         $payload = ['data' => ['attributes' => [
-            'billing'              => [
-                'name'  => $booking['full_name'],
-                'email' => $booking['contact_number'] ? null : null, // seeker email not stored in availed_services
-                'phone' => $booking['contact_number'],
-            ],
+            'billing'              => $billing,
             'send_email_receipt'   => false,
             'show_description'     => true,
             'show_line_items'      => true,

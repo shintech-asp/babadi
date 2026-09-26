@@ -16,7 +16,7 @@ $where  = ["sl.status = 'active'"];
 $params = [];
 
 if ($search !== null && $search !== '') {
-    $where[]            = "(sl.title LIKE :search OR sl.description LIKE :search)";
+    $where[]            = "(sl.service_name LIKE :search OR sl.description LIKE :search)";
     $params[':search']  = '%' . $search . '%';
 }
 
@@ -49,11 +49,14 @@ $whereSQL = 'WHERE ' . implode(' AND ', $where);
 
 $pdo = db();
 
+// service_listings was merged into services (see CLAUDE.md's "Recent Work
+// Log") — sl.service_name AS title keeps this endpoint's JSON response shape
+// identical to what the Flutter app already parses (listing['title']).
 $countSQL = "
     SELECT COUNT(DISTINCT sl.id) AS total
-    FROM service_listings sl
+    FROM services sl
     JOIN providers p ON sl.provider_id = p.id
-    JOIN service_categories sc ON sl.category_id = sc.id
+    LEFT JOIN service_categories sc ON sl.category_id = sc.id
     LEFT JOIN service_reviews r ON r.provider_id = p.id
     $whereSQL
 ";
@@ -65,12 +68,19 @@ foreach ($params as $key => $value) {
 $countStmt->execute();
 $total = (int) $countStmt->fetchColumn();
 
+// service_categories is LEFT JOINed (not JOINed) deliberately: an INNER
+// join here would silently hide any service whose category_id is NULL or
+// points at a deleted category — exactly the "collected but silently
+// drops the row" bug class this app has been bitten by before (see
+// CLAUDE.md's "Recent Work Log"). No rows in this DB currently trigger it,
+// but a provider's service should never be able to vanish from browse just
+// because its category reference went stale.
 $dataSQL = "
-    SELECT sl.*, p.company_name, p.logo_url, sc.name AS category_name,
+    SELECT sl.*, sl.service_name AS title, p.company_name, p.logo_url, sc.name AS category_name,
            ROUND(AVG(r.rating), 1) AS avg_rating, COUNT(r.id) AS review_count
-    FROM service_listings sl
+    FROM services sl
     JOIN providers p ON sl.provider_id = p.id
-    JOIN service_categories sc ON sl.category_id = sc.id
+    LEFT JOIN service_categories sc ON sl.category_id = sc.id
     LEFT JOIN service_reviews r ON r.provider_id = p.id
     $whereSQL
     GROUP BY sl.id

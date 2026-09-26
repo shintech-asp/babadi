@@ -10,16 +10,23 @@ if ($id <= 0) {
 
 $db = db();
 
+// service_listings was merged into services (see CLAUDE.md's "Recent Work
+// Log") — sl.service_name AS title keeps this endpoint's JSON response shape
+// identical to what the Flutter app already parses (listing['title']).
+// service_categories is LEFT JOINed (not JOINed) deliberately: an INNER
+// join here would 404 a service's own detail page — worse than just being
+// absent from browse, since it'd still show up in the list only to vanish
+// on tap — the moment category_id is NULL or points at a deleted category.
 $stmt = $db->prepare(
-    "SELECT sl.*, p.company_name, p.logo_url, p.service_radius, p.description AS provider_description,
+    "SELECT sl.*, sl.service_name AS title, p.company_name, p.logo_url, p.service_radius, p.description AS provider_description,
             p.city AS provider_city, p.address AS provider_address,
             u.first_name AS provider_first, u.last_name AS provider_last,
             sc.name AS category_name,
             ROUND(AVG(r.rating),1) AS avg_rating, COUNT(r.id) AS review_count
-     FROM service_listings sl
+     FROM services sl
      JOIN providers p ON sl.provider_id = p.id
      JOIN users u ON u.id = p.user_id
-     JOIN service_categories sc ON sl.category_id = sc.id
+     LEFT JOIN service_categories sc ON sl.category_id = sc.id
      LEFT JOIN service_reviews r ON r.provider_id = p.id
      WHERE sl.id = :id AND sl.status = 'active'
      GROUP BY sl.id"
@@ -33,7 +40,7 @@ if (!$listing) {
 
 $listing['images'] = json_decode($listing['images'] ?? '[]', true) ?: [];
 
-$upd = $db->prepare("UPDATE service_listings SET views_count = views_count + 1 WHERE id = :id");
+$upd = $db->prepare("UPDATE services SET views_count = views_count + 1 WHERE id = :id");
 $upd->execute([':id' => $id]);
 
 $rev = $db->prepare(

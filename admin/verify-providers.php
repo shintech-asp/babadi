@@ -39,7 +39,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
             if (!$providerRow) {
                 $error_message = "Provider not found.";
             } else {
-                $status = $action === 'approve' ? 'active' : 'rejected';
+                // providers.status is ENUM('pending','active','inactive','suspended') — it has no
+                // 'rejected' value, so writing one here silently failed the whole UPDATE under
+                // strict SQL mode (same bug already fixed in api/v1/admin/providers/reject.php;
+                // this web page's own copy of the same logic was missed by that fix). A rejection
+                // is fully represented by verification_status alone — status is left untouched.
+                $status = $action === 'approve' ? 'active' : $providerRow['status'];
                 $verificationStatus = $action === 'approve' ? 'approved' : 'rejected';
                 $message = $action === 'approve'
                     ? "Provider verified and approved successfully."

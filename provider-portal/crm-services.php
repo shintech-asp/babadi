@@ -35,13 +35,13 @@ $search = trim($_GET['search'] ?? '');
 $where  = "provider_id=:p";
 $params = [':p'=>$pid];
 if ($status_filter) { $where .= " AND status=:s"; $params[':s']=$status_filter; }
-if ($search) { $where .= " AND (service_name LIKE :q OR category LIKE :q)"; $params[':q']="%$search%"; }
+if ($search) { $where .= " AND (s.service_name LIKE :q OR sc.name LIKE :q)"; $params[':q']="%$search%"; }
 
-$services = safeAll($db,"SELECT s.*,
+$services = safeAll($db,"SELECT s.*, sc.name AS category,
     (SELECT COUNT(*) FROM availed_services a WHERE a.service_id=s.id AND a.status='completed') AS total_completed,
     (SELECT COUNT(*) FROM availed_services a WHERE a.service_id=s.id AND a.status='pending') AS total_pending,
     (SELECT COALESCE(SUM(a.total_amount),0) FROM availed_services a WHERE a.service_id=s.id AND a.status='completed') AS total_revenue
-    FROM services s WHERE $where ORDER BY s.status='active' DESC, s.created_at DESC",$params);
+    FROM services s LEFT JOIN service_categories sc ON sc.id = s.category_id WHERE $where ORDER BY s.status='active' DESC, s.created_at DESC",$params);
 
 $active_count   = safeCount($db,"SELECT COUNT(*) FROM services WHERE provider_id=:p AND status='active'",[':p'=>$pid]);
 $inactive_count = safeCount($db,"SELECT COUNT(*) FROM services WHERE provider_id=:p AND status='inactive'",[':p'=>$pid]);

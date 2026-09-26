@@ -292,12 +292,11 @@ try {
             CASE
                 WHEN total_amount IS NOT NULL AND total_amount > 0 THEN total_amount
                 WHEN paid_amount IS NOT NULL AND paid_amount > 0 THEN paid_amount
-                ELSE COALESCE(s.price, sl.price, 0)
+                ELSE COALESCE(s.price, 0)
             END
         ), 0) AS total_revenue
          FROM availed_services av
          LEFT JOIN services s ON av.service_id = s.id
-         LEFT JOIN service_listings sl ON av.service_id = sl.id
          WHERE av.provider_id = :provider_id
            AND av.status = 'completed'"
     );
@@ -314,10 +313,9 @@ $availed_recent = [];
 try {
     $avStmt = $db->prepare("
         SELECT av.*,
-               COALESCE(s.price, sl.price) as price
+               s.price as price
         FROM availed_services av
         LEFT JOIN services s ON av.service_id = s.id
-        LEFT JOIN service_listings sl ON av.service_id = sl.id
         WHERE av.provider_id = :pid
         ORDER BY av.created_at DESC
         LIMIT 10
@@ -922,8 +920,18 @@ try {
             
             <div class="sidebar-footer">
                 <div class="user-profile">
-                    <?php $provider_avatar = trim((string)($provider['profile_image'] ?? '')); ?>
-                    <?php if ($provider_avatar === '') { $provider_avatar = trim((string)($provider['logo_url'] ?? '')); } ?>
+                    <?php
+                    // profile_image is stored as a bare path relative to the app root
+                    // (e.g. "uploads/profile/xxx.jpg") — rendering it as-is only worked
+                    // by accident on pages living exactly at the app root; from a
+                    // subfolder like provider/ the browser resolved it one directory
+                    // too deep, showing a broken image. logo_url, by contrast, is a
+                    // full external URL a provider pastes in themselves, so it's left
+                    // untouched.
+                    $provider_avatar = trim((string)($provider['profile_image'] ?? ''));
+                    if ($provider_avatar !== '') { $provider_avatar = siteUrl($provider_avatar); }
+                    if ($provider_avatar === '') { $provider_avatar = trim((string)($provider['logo_url'] ?? '')); }
+                    ?>
                     <div class="user-avatar <?php echo $provider_avatar !== '' ? 'has-photo' : ''; ?>">
                         <?php if ($provider_avatar !== ''): ?>
                             <img src="<?php echo htmlspecialchars($provider_avatar); ?>" alt="Profile Photo" class="user-avatar-img">
