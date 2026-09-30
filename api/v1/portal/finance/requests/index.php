@@ -4,10 +4,9 @@
 // Access: finance role (owner, finance) + Pro tier
 //
 // TABLE: budget_requests
-//   Provider-scoped columns: id, provider_id, department, title, description, purpose,
-//   request_type, amount, approved_amount, priority, status, request_date, needed_date,
-//   requested_by (FK → provider_staff.id), approved_by, remarks, approved_at,
-//   created_at, updated_at
+//   Provider-scoped columns: id, provider_id, department, purpose, amount,
+//   approved_amount, status, request_date, needed_date, requested_by
+//   (FK → provider_staff.id), approved_by, remarks, created_at, updated_at
 //
 // Query params: status, page, limit
 // status: pending | approved | rejected | partially_approved
@@ -61,7 +60,7 @@ $sql = "
         br.created_at,
         br.updated_at
     FROM budget_requests br
-    LEFT JOIN provider_staff ps ON ps.id = br.requested_by AND br.provider_id IS NOT NULL
+    LEFT JOIN provider_staff ps ON ps.id = br.requested_by
     WHERE $whereStr
     ORDER BY br.created_at DESC
     LIMIT :limit OFFSET :offset

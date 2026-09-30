@@ -48,4 +48,4 @@ if (!$ok) {
     fail('Status transition not allowed from current state.', 422);
 }
 
-ok(['message' => 'Status updated', 'status' => $status]);
+ok(['data' => ['message' => 'Status updated', 'status' => $status]]);

@@ -1,70 +1,51 @@
 <?php
 // api/v1/portal/subscriptions/index.php
-// GET — owner only — returns current subscription, all plans, and tier label.
+// GET — any portal actor (owner, hr/finance/crm staff, or a plain employee)
+// — returns current subscription, all plans, and tier label. Read access is
+// intentionally NOT owner-only: portal-sidebar.php shows the tier badge and
+// Pro-lock icons to every role on the web, not just the owner, so the
+// mobile shell needs the same visibility to render its own gating
+// correctly. Only store.php (actually purchasing/renewing) stays owner-only
+// — matching the web sidebar's "Upgrade to Pro"/"Subscription" link, which
+// is the one piece gated to `$is_owner`.
 require_once dirname(__DIR__) . '/_bootstrap.php';
+require_once dirname(__DIR__, 4) . '/provider-portal/includes/portal-tier.php';
 
 allow('GET');
 
-$staff       = require_portal_role('owner');
-$provider_id = (int)$staff['provider_id'];
+$actor       = require_portal_actor();
+$provider_id = (int)$actor['provider_id'];
 
 $pdo = db();
 
-// ── Current subscription ──────────────────────────────────────────────────────
+// Tier label via the same getProviderTier() the web uses — this endpoint
+// used to re-implement the same query with two real divergences: it never
+// excluded a still-`pending` renewal row (so requesting an early renewal
+// made a genuinely active subscription report as 'free' the moment the
+// pending row's created_at became the newest), and it picked the "current"
+// row by created_at instead of expires_at, which can disagree once a
+// renewal exists. Delegating removes both by construction.
+$tierInfo = getProviderTier($pdo, $provider_id);
+$tier_label   = $tierInfo['tier'] === 'paid' ? 'pro' : $tierInfo['tier'];
+$tier_expires = $tierInfo['expires_at'];
+$tier_grace   = $tierInfo['grace_ends_at'];
+
+// ── Current subscription (for display) — same active/grace + plan_id +
+// expires_at filter as getProviderTier(), so what's shown here always
+// matches the tier just computed above rather than possibly surfacing an
+// unrelated newer-but-pending row.
 $sub_stmt = $pdo->prepare(
     "SELECT ps.*, sp.name AS plan_name, sp.monthly_price, sp.yearly_price
      FROM provider_subscriptions ps
      JOIN subscription_plans sp ON ps.plan_id = sp.id
-     WHERE ps.provider_id = :pid
-     ORDER BY ps.created_at DESC
+     WHERE ps.provider_id = :pid AND ps.plan_id IS NOT NULL
+       AND ps.status IN ('active', 'grace')
+       AND ps.expires_at IS NOT NULL
+     ORDER BY ps.expires_at DESC, ps.id DESC
      LIMIT 1"
 );
 $sub_stmt->execute([':pid' => $provider_id]);
 $current_sub = $sub_stmt->fetch(PDO::FETCH_ASSOC);
-
-// ── Tier label (mirrors getProviderTier logic from portal-tier.php) ───────────
-$tier_label  = 'free';
-$tier_expires = null;
-$tier_grace   = null;
-
-if ($current_sub) {
-    $status = $current_sub['status'];
-    $now    = date('Y-m-d H:i:s');
-
-    if (in_array($status, ['active', 'grace']) && $current_sub['expires_at']) {
-        if ($current_sub['expires_at'] > $now) {
-            $tier_label  = 'pro';
-            $tier_expires = $current_sub['expires_at'];
-            $tier_grace   = $current_sub['grace_ends_at'];
-        } else {
-            // Check grace
-            $grace_ends = $current_sub['grace_ends_at']
-                ?: date('Y-m-d H:i:s', strtotime($current_sub['expires_at']) + 3 * 86400);
-            if ($grace_ends > $now) {
-                $tier_label  = 'grace';
-                $tier_expires = $current_sub['expires_at'];
-                $tier_grace   = $grace_ends;
-                // Lazy-update status if needed
-                if ($current_sub['status'] !== 'grace') {
-                    try {
-                        $pdo->prepare(
-                            "UPDATE provider_subscriptions SET status='grace', grace_ends_at=:g, updated_at=NOW() WHERE id=:id"
-                        )->execute([':g' => $grace_ends, ':id' => (int)$current_sub['id']]);
-                    } catch (Exception $e) {}
-                }
-            } else {
-                // Fully expired
-                if ($current_sub['status'] !== 'expired') {
-                    try {
-                        $pdo->prepare(
-                            "UPDATE provider_subscriptions SET status='expired', updated_at=NOW() WHERE id=:id"
-                        )->execute([':id' => (int)$current_sub['id']]);
-                    } catch (Exception $e) {}
-                }
-            }
-        }
-    }
-}
 
 // ── Available plans ───────────────────────────────────────────────────────────
 $plans_stmt = $pdo->prepare(

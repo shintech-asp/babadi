@@ -95,9 +95,16 @@ try {
 
 $seeker_user_id = (int)($booking['seeker_user_id'] ?: $booking['user_id']);
 try {
+    // notifications.type is a strict ENUM('request','message','review','payment',
+    // 'system','promotion') — no 'inspection' value exists, so this INSERT was
+    // silently failing under STRICT_TRANS_TABLES on every submission (same bug
+    // class already found and fixed in submitProviderInspectionReport(), see
+    // CLAUDE.md's "Field technicians can now actually process..." log entry —
+    // this mobile-only endpoint has its own separate copy of the insert and
+    // was missed by that fix). Using 'request', the closest valid value.
     $pdo->prepare(
         "INSERT INTO notifications (user_id, type, title, message, related_id, related_type, action_url, is_read, created_at)
-         VALUES (:uid, 'inspection', :title, :msg, :rid, 'availed_service', :url, 0, NOW())"
+         VALUES (:uid, 'request', :title, :msg, :rid, 'availed_service', :url, 0, NOW())"
     )->execute([
         ':uid'   => $seeker_user_id,
         ':title' => 'Inspection Report Ready — #' . $avail_id,

@@ -73,9 +73,17 @@ function require_portal_actor(): array {
 }
 
 function portal_require_pro(int $provider_id): void {
-    $stmt = db()->prepare(
-        "SELECT id FROM provider_subscriptions WHERE provider_id = ? AND status IN ('active','grace') LIMIT 1"
-    );
-    $stmt->execute([$provider_id]);
-    if (!$stmt->fetch()) fail('Pro subscription required to access this feature.', 403);
+    // Delegates to the same getProviderTier() the web sidebar/tier lock use
+    // (provider-portal/includes/portal-tier.php) instead of re-querying
+    // provider_subscriptions directly. The old query here only checked
+    // status IN ('active','grace') — missing the expires_at > NOW() check
+    // entirely, plan_id IS NOT NULL, and the "newest row might be a
+    // still-pending renewal" exclusion getProviderTier() already handles —
+    // so an expired-but-not-yet-lazily-updated row, or a stray plan_id-less
+    // row, granted Pro on mobile when the web already correctly said Free.
+    require_once dirname(__DIR__, 3) . '/provider-portal/includes/portal-tier.php';
+    $tier = getProviderTier(db(), $provider_id);
+    if (!in_array($tier['tier'], ['paid', 'grace'], true)) {
+        fail('Pro subscription required to access this feature.', 403);
+    }
 }

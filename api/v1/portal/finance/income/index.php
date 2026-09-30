@@ -1,7 +1,13 @@
 <?php
 // GET /api/v1/portal/finance/income/
 // List income records for the authenticated staff's provider.
-// Access: finance role (owner, finance) + Pro tier
+// Access: finance role (owner, finance) | Tier: free-viewable — web's
+// income.php renders this list for every tier (its own banner only says
+// "Full income management... requires Pro", it never actually gates the
+// add/delete POST handlers either); this endpoint previously hard-403'd
+// free-tier providers just for viewing, which is stricter than web. Kept
+// store.php's own Pro gate as-is since that's a real business-rule call,
+// not an access-parity bug like this one.
 //
 // TABLE: income_records
 //   Columns used: id, provider_id, income_type, amount, income_date,
@@ -14,7 +20,6 @@ require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 $staff = require_portal_role('owner', 'finance');
-portal_require_pro((int)$staff['provider_id']);
 
 ['page' => $page, 'limit' => $limit, 'offset' => $offset] = paginate();
 

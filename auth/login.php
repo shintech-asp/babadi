@@ -221,6 +221,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 // crm-requests.php already branch on portal_account_type ===
                 // 'employee' / portal_employee_id — this just completes the
                 // login path those were built to expect.
+                //
+                // Only checked when this identifier does NOT belong to a
+                // provider_staff account at all — otherwise a promoted
+                // manager typing their OLD employee password (the one they
+                // already knew, instead of the brand-new username+temp
+                // password "Promote to Manager" generated) would silently
+                // fall through and log in via their still-active employees
+                // row instead, landing in plain self-service with no HR/
+                // Finance/CRM access and no error telling them anything was
+                // wrong — exactly the "promoted but still only sees Time
+                // In/Out, Leave, Payslips" bug this guard closes. A wrong
+                // password against a real provider_staff row must fail
+                // outright, not retry against a different table.
+                $emp = null;
+                if (!$staff) {
                 $empStmt = $db->prepare(
                     "SELECT e.*, p.company_name
                      FROM employees e
@@ -231,6 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 );
                 $empStmt->execute([':identifier' => $identifier]);
                 $emp = $empStmt->fetch(PDO::FETCH_ASSOC);
+                }
 
                 if ($emp) {
                     $empPasswordValid = false;

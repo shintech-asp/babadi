@@ -1,7 +1,14 @@
 <?php
 // GET /api/v1/portal/hr/payroll/
 // List payroll records for this provider's employees.
-// Access: owner, hr   |   Tier: Pro required
+// Access: owner, hr, finance   |   Tier: Pro required
+//
+// Web's payroll.php gates the whole page on ($can_hr || $can_finance) since
+// Finance needs to see the list to know what to approve/mark-paid — this
+// endpoint originally only allowed owner/hr, which meant a finance-only
+// mobile account could call approve.php/mark-paid.php (both already
+// owner/finance-gated) but never actually see a list to act on. Widened to
+// match.
 //
 // Query params:
 //   employee_id  (int, optional)
@@ -13,7 +20,7 @@
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
-$staff = require_portal_role('owner', 'hr');
+$staff = require_portal_role('owner', 'hr', 'finance');
 $pid   = (int)$staff['provider_id'];
 portal_require_pro($pid);
 

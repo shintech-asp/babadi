@@ -29,7 +29,10 @@ if (!$chk->fetch()) {
 
 // ── Build update set ──────────────────────────────────────────────────────────
 
-$valid_roles   = ['owner', 'hr', 'finance', 'crm'];
+// 'owner' deliberately excluded — provider-portal/staff.php never offers it
+// as a selectable role either (a provider has exactly one owner, set at
+// account creation).
+$valid_roles   = ['hr', 'finance', 'crm'];
 $valid_depts   = ['hr', 'finance', 'crm', 'all'];
 $valid_statuses = ['active', 'inactive'];
 

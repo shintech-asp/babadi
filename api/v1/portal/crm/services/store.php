@@ -24,6 +24,14 @@ if (!in_array($pricing_type, $allowed_pricing, true)) {
     fail('Pricing type must be one of: ' . implode(', ', $allowed_pricing) . '.');
 }
 
+// Non-fixed pricing can't be charged upfront — force requires_inspection on,
+// mirroring provider/services.php's add handler and api/v1/provider/listings/
+// store.php exactly (this endpoint was missing the rule entirely, so an
+// Hourly/Custom service created via the CRM portal skipped the mandatory
+// Inspection -> Agreement flow and went straight to payment at a meaningless
+// placeholder price).
+$requires_inspection = ($pricing_type !== 'fixed') ? true : (bool) inp('requires_inspection', false);
+
 $pdo = db();
 
 // Validate category
@@ -39,10 +47,10 @@ if (!$catStmt->fetch()) {
 $stmt = $pdo->prepare(
     'INSERT INTO services
         (provider_id, service_name, description, price, pricing_type, category_id,
-         is_emergency_available, status, created_at)
+         is_emergency_available, requires_inspection, status, created_at)
      VALUES
         (:provider_id, :service_name, :description, :price, :pricing_type, :category_id,
-         :is_emergency, :status, NOW())'
+         :is_emergency, :requires_inspection, :status, NOW())'
 );
 
 $stmt->execute([
@@ -53,6 +61,7 @@ $stmt->execute([
     ':pricing_type'=> $pricing_type,
     ':category_id' => (int)$category_id,
     ':is_emergency'=> $is_emergency ? 1 : 0,
+    ':requires_inspection' => $requires_inspection ? 1 : 0,
     ':status'      => 'active',
 ]);
 

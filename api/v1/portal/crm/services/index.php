@@ -1,10 +1,12 @@
 <?php
+// List — free-tier viewable: web's crm-services.php renders its catalog
+// regardless of tier, gating only add/edit (owner + `$tier_is_paid`) — see
+// store.php/update.php, which keep their own Pro gate.
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 
 $staff = require_portal_role('owner', 'crm');
-portal_require_pro($staff['provider_id']);
 
 $pid    = (int)$staff['provider_id'];
 $status = inp('status');
@@ -39,6 +41,7 @@ $sql = "SELECT sl.id,
                sl.pricing_type,
                sl.status,
                sl.is_emergency_available,
+               sl.requires_inspection,
                sl.images,
                sl.created_at,
                sc.id   AS category_id,
@@ -68,6 +71,11 @@ foreach ($rows as &$row) {
     $row['category_id']           = (int)$row['category_id'];
     $row['price']                 = (float)$row['price'];
     $row['is_emergency_available']= (bool)$row['is_emergency_available'];
+    // Was missing from this SELECT entirely, so the mobile edit form always
+    // guessed pricing_type !== 'fixed' instead of reading the real stored
+    // value — silently flipping requires_inspection off on any edit of a
+    // Fixed-price service that had deliberately opted in for other reasons.
+    $row['requires_inspection']   = (bool)$row['requires_inspection'];
     $row['review_count']          = (int)$row['review_count'];
     $row['avg_rating']            = $row['avg_rating'] !== null ? (float)$row['avg_rating'] : null;
 

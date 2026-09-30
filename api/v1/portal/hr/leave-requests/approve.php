@@ -2,7 +2,11 @@
 // POST api/v1/portal/hr/leave-requests/approve
 // Approve a pending leave request — enforces remaining balance, mirrors
 // provider-portal/leave-requests.php's 'approve' action.
-// Access: owner, hr | Tier: Pro required.
+// Access: owner, hr | Tier: free — grep confirms leave-requests.php's
+// approve/reject/add POST handlers have zero $tier_is_paid checks (only the
+// page's own "Free Tier — View Only" banner claims otherwise); this
+// endpoint previously kept a Pro gate that made the identical action 403 on
+// mobile while it succeeded on web for the same free-tier user.
 //
 // Body: request_id
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
@@ -11,7 +15,6 @@ require_once 'provider-portal/includes/leave_balance_helper.php';
 allow('POST');
 $staff = require_portal_role('owner', 'hr');
 $pid   = (int)$staff['provider_id'];
-portal_require_pro($pid);
 
 $rid = (int) req_inp('request_id', 'request_id');
 $pdo = db();

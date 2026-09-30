@@ -34,19 +34,35 @@ if ($date === null || trim($date) === '')     fail('date is required', 422);
 $amount = (float)$amount;
 if ($amount <= 0) fail('amount must be a positive number', 422);
 
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) fail('date must be in YYYY-MM-DD format', 422);
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !DateTime::createFromFormat('Y-m-d', $date)) {
+    fail('date must be a valid YYYY-MM-DD date', 422);
+}
+
+// receipt_number is varchar(100) — a real URL would exceed that and 500
+// under strict mode instead of failing cleanly.
+if ($receipt_url !== null && strlen($receipt_url) > 100) {
+    fail('receipt_url must be 100 characters or fewer', 422);
+}
 
 $reference_number = 'EXP-' . strtoupper(substr(uniqid(), 0, 8));
 
+// expense_records.expense_type is varchar(100) NOT NULL with no default (see
+// provider-portal/expenses.php's own required "Expense Type *" field) — this
+// INSERT never included it, so every call 500'd under STRICT_TRANS_TABLES
+// (same bug class as the requests/store.php `department` fix elsewhere in
+// this session). This endpoint only ever collected one free-text field
+// (called `category` here), so it now fills both columns from it rather
+// than adding a second mobile-only field the web doesn't ask for either.
 $stmt = db()->prepare("
     INSERT INTO expense_records
-        (provider_id, category, amount, expense_date, description, receipt_number, created_at)
+        (provider_id, expense_type, category, amount, expense_date, description, receipt_number, created_at)
     VALUES
-        (:provider_id, :category, :amount, :expense_date, :description, :receipt_number, NOW())
+        (:provider_id, :expense_type, :category, :amount, :expense_date, :description, :receipt_number, NOW())
 ");
 
 $stmt->execute([
     ':provider_id'     => $provider_id,
+    ':expense_type'    => trim($category),
     ':category'        => trim($category),
     ':amount'          => $amount,
     ':expense_date'    => $date,

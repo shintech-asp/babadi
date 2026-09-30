@@ -40,9 +40,12 @@ if ($user['user_type'] === 'seeker') {
     }
 }
 
-// 2. Messages — same for both roles
+// 2. Messages — same for both roles. request_id is the transaction-scoped
+// booking this message belongs to (see includes/transaction_chat_helper.php)
+// — used as link_id below so tapping the notification opens that booking's
+// thread, not a (now-removed) lifetime per-sender thread.
 $stmt = $pdo->prepare(
-    'SELECT m.id, m.message, m.is_read, m.created_at,
+    'SELECT m.id, m.message, m.is_read, m.created_at, m.request_id,
             u.first_name, u.last_name, u.id AS sender_id
      FROM messages m
      JOIN users u ON u.id = m.sender_id
@@ -74,6 +77,12 @@ foreach ($bookings as $b) {
 }
 
 foreach ($messages as $m) {
+    if (empty($m['request_id'])) {
+        // Pre-migration message with no booking scope (shouldn't happen for
+        // anything sent after transaction-scoped chat shipped) — skip rather
+        // than link to a booking that doesn't exist.
+        continue;
+    }
     $sender = trim($m['first_name'] . ' ' . $m['last_name']);
     $items[] = [
         'type'       => 'message',
@@ -81,7 +90,7 @@ foreach ($messages as $m) {
         'body'       => $m['message'],
         'is_read'    => (bool)$m['is_read'],
         'created_at' => $m['created_at'],
-        'link_id'    => (int)$m['sender_id'],
+        'link_id'    => (int)$m['request_id'],
     ];
 }
 

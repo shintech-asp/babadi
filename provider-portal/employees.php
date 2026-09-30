@@ -130,6 +130,119 @@ function sendEmployeeWelcomeEmail($to_email, $to_name, $employee_id, $temp_passw
     }
 }
 
+// Sent when the owner resets a manager's (provider_staff) portal password —
+// mirrors sendEmployeeWelcomeEmail()'s styling exactly, adapted for a reset
+// rather than a first-time account (login by email, not an employee code).
+function sendManagerPasswordResetEmail($to_email, $to_name, $temp_password, $company) {
+    $mail = new PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host       = SMTP_HOST;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = SMTP_USERNAME;
+        $mail->Password   = SMTP_PASSWORD;
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = SMTP_PORT;
+
+        $mail->setFrom(NOREPLY_EMAIL, $company . ' Portal');
+        $mail->addAddress($to_email, $to_name);
+        $mail->isHTML(true);
+        $mail->Subject = 'Your ' . $company . ' Portal Password Has Been Reset';
+
+        $login_url = SITE_URL . '/provider-portal/login.php';
+        $mail->Body = '
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body style="margin:0;padding:0;background:#f0f4f1;font-family:\'DM Sans\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f1;padding:40px 16px;">
+  <tr><td align="center">
+    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;">
+
+      <!-- Header -->
+      <tr><td style="background:linear-gradient(135deg,#1c6b3f,#2E8B57,#38a169);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center;">
+        <div style="display:inline-flex;align-items:center;justify-content:center;width:60px;height:60px;background:rgba(255,255,255,.15);border:1.5px solid rgba(255,255,255,.25);border-radius:14px;margin-bottom:16px;">
+          <span style="font-size:26px;">🔑</span>
+        </div>
+        <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;letter-spacing:-.3px;">Password Reset</h1>
+        <p style="margin:6px 0 0;color:rgba(255,255,255,.8);font-size:14px;">' . htmlspecialchars($company) . ' Portal</p>
+      </td></tr>
+
+      <!-- Body -->
+      <tr><td style="background:#ffffff;padding:36px 40px;">
+        <p style="margin:0 0 20px;color:#1e2d27;font-size:15px;line-height:1.6;">
+          Hi <strong>' . htmlspecialchars($to_name) . '</strong>,<br><br>
+          Your portal password has been reset by your administrator. Use the temporary password below to log back in.
+        </p>
+
+        <!-- Credentials box -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f6faf8;border:1.5px solid #dde5e0;border-radius:12px;margin-bottom:24px;">
+          <tr><td style="padding:24px 28px;">
+            <p style="margin:0 0 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#6b8077;">Your Login Credentials</p>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #dde5e0;">
+                  <span style="font-size:12px;color:#6b8077;font-weight:600;">Email</span>
+                </td>
+                <td style="padding:8px 0;border-bottom:1px solid #dde5e0;text-align:right;">
+                  <code style="font-size:14px;font-weight:700;color:#2E8B57;background:#e8f5ee;padding:3px 10px;border-radius:6px;">' . htmlspecialchars($to_email) . '</code>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;">
+                  <span style="font-size:12px;color:#6b8077;font-weight:600;">Temporary Password</span>
+                </td>
+                <td style="padding:8px 0;text-align:right;">
+                  <code style="font-size:14px;font-weight:700;color:#2E8B57;background:#e8f5ee;padding:3px 10px;border-radius:6px;">' . htmlspecialchars($temp_password) . '</code>
+                </td>
+              </tr>
+            </table>
+          </td></tr>
+        </table>
+
+        <!-- Warning -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#fefcbf;border:1px solid rgba(217,119,6,.25);border-radius:10px;margin-bottom:28px;">
+          <tr><td style="padding:14px 18px;font-size:13px;color:#78350f;">
+            ⚠️ <strong>Important:</strong> You will be required to set a new password on your next login. If you did not request this reset, contact your administrator immediately.
+          </td></tr>
+        </table>
+
+        <!-- CTA Button -->
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr><td align="center">
+            <a href="' . $login_url . '" style="display:inline-block;background:linear-gradient(135deg,#2E8B57,#38a169);color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:10px;letter-spacing:.1px;">
+              Log In to Portal →
+            </a>
+          </td></tr>
+        </table>
+      </td></tr>
+
+      <!-- Footer -->
+      <tr><td style="background:#f6faf8;border:1px solid #dde5e0;border-top:none;border-radius:0 0 16px 16px;padding:20px 40px;text-align:center;">
+        <p style="margin:0;font-size:12px;color:#9ab3aa;line-height:1.6;">
+          This is an automated message from <strong>' . htmlspecialchars($company) . '</strong>.<br>
+          If you did not expect this email, please contact your administrator.
+        </p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>';
+
+        $mail->AltBody = "Your " . $company . " portal password has been reset.\n\nEmail: $to_email\nTemporary Password: $temp_password\n\nLog in at: $login_url\n\nYou will be required to set a new password on your next login.";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
 if (!($portal_role === 'owner' || $portal_dept === 'hr' || $portal_dept === 'all')) {
     header('Location: dashboard.php'); exit;
 }
@@ -189,24 +302,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             // Check if already a staff member
             $existing = safeRow($db, "SELECT id FROM provider_staff WHERE provider_id=:p AND email=:e", [':p'=>$pid,':e'=>$emp['email']]);
             if ($existing) {
-                // Update existing staff record
+                // Update existing staff record — also re-sync the password
+                // from the current employees row every time, not just
+                // role/department/status. Without this, re-promoting someone
+                // (e.g. after a demote, or just clicking Promote again) hit
+                // ONLY this branch and left whatever old/stale password_hash
+                // was already on the provider_staff row untouched — for
+                // anyone promoted before today's fix (or reset in some other
+                // way since), that's still the orphaned "Mgr@..." password
+                // nobody has, so re-promoting looked like it worked but the
+                // account remained just as locked-out as before.
                 $role_map = ['hr'=>'hr','finance'=>'finance','crm'=>'crm'];
                 $role = $role_map[$dept] ?? 'hr';
-                $db->prepare("UPDATE provider_staff SET role=:r, department=:d, status='active' WHERE id=:id")
-                   ->execute([':r'=>$role,':d'=>$dept,':id'=>$existing['id']]);
-                $success = "<strong>{$emp['first_name']} {$emp['last_name']}</strong> has been updated to <strong>" . ucfirst($dept) . " Manager</strong>.";
+                $db->prepare("UPDATE provider_staff SET role=:r, department=:d, status='active', password_hash=:h, temp_password=:t, must_change_password=:mc WHERE id=:id")
+                   ->execute([
+                       ':r'=>$role, ':d'=>$dept, ':id'=>$existing['id'],
+                       ':h'=>$emp['password_hash'], ':t'=>$emp['temp_password'], ':mc'=>(int)$emp['must_change_pwd'],
+                   ]);
+                $success = "<strong>{$emp['first_name']} {$emp['last_name']}</strong> has been updated to <strong>" . ucfirst($dept) . " Manager</strong>. Their login now matches their current employee password.";
             } else {
-                // Create new staff record
+                // Create new staff record — reuse the employee's EXISTING
+                // password_hash/temp_password/must_change_pwd instead of
+                // minting a brand-new, unrelated login. This used to
+                // generate a random username + "Mgr@..." temp password
+                // shown ONCE in this success banner and never retrievable
+                // again — if that got missed (or just not read carefully,
+                // since it looks like a plain confirmation message), the
+                // owner had no way back in except direct DB access, because
+                // demoting and re-promoting the SAME person hits the
+                // "already a staff member" branch above, which only
+                // reactivates status and never re-shows or resets anything.
+                // Carrying the password over means the promotion changes
+                // what an already-known login can do, rather than requiring
+                // a second, separate credential nobody was told to expect.
                 $role_map = ['hr'=>'hr','finance'=>'finance','crm'=>'crm'];
                 $role = $role_map[$dept] ?? 'hr';
                 $full_name = trim($emp['first_name'].' '.$emp['last_name']);
                 $username  = strtolower(str_replace(' ','_',$full_name)).rand(10,99);
-                $tmp_pwd   = 'Mgr@'.rand(10000,99999);
-                $hash      = password_hash($tmp_pwd, PASSWORD_BCRYPT);
                 $db->prepare("INSERT INTO provider_staff (provider_id,full_name,username,email,password_hash,temp_password,role,department,must_change_password,status)
-                              VALUES (:pid,:fn,:un,:em,:hash,:tmp,:role,:dept,1,'active')")
-                   ->execute([':pid'=>$pid,':fn'=>$full_name,':un'=>$username,':em'=>$emp['email'],':hash'=>$hash,':tmp'=>$tmp_pwd,':role'=>$role,':dept'=>$dept]);
-                $success = "<strong>{$emp['first_name']} {$emp['last_name']}</strong> promoted to <strong>" . ucfirst($dept) . " Manager</strong>. Portal login: <code>{$username}</code> | Temp Password: <code>{$tmp_pwd}</code>";
+                              VALUES (:pid,:fn,:un,:em,:hash,:tmp,:role,:dept,:mustchange,'active')")
+                   ->execute([
+                       ':pid'=>$pid,':fn'=>$full_name,':un'=>$username,':em'=>$emp['email'],
+                       ':hash'=>$emp['password_hash'], ':tmp'=>$emp['temp_password'],
+                       ':role'=>$role,':dept'=>$dept,
+                       ':mustchange'=>(int)$emp['must_change_pwd'],
+                   ]);
+                $success = "<strong>{$emp['first_name']} {$emp['last_name']}</strong> promoted to <strong>" . ucfirst($dept) . " Manager</strong>. They keep logging in with their existing email and password — no new credentials to share.";
             }
         }
 
@@ -217,6 +358,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $db->prepare("UPDATE provider_staff SET status='inactive' WHERE provider_id=:p AND email=:e AND role != 'owner'")
                ->execute([':p'=>$pid,':e'=>$emp['email']]);
             $success = "<strong>{$emp['first_name']} {$emp['last_name']}</strong> has been demoted back to employee.";
+        }
+
+    // Resets an account's portal password and emails them a new temp
+    // password — works for EVERY employee, not just managers. If they're
+    // currently a promoted manager, that's the account they actually log in
+    // with (auth/login.php checks provider_staff first and no longer falls
+    // through to employees on a password mismatch — see today's earlier
+    // fix), so the manager row is what gets reset; otherwise it resets
+    // their plain employees login. Either way this is the recovery path
+    // that didn't exist before: the only credentials any of these accounts
+    // ever had were shown once at creation/promotion time, with no way to
+    // retrieve or rotate them from the UI if lost.
+    } elseif ($_POST['action'] === 'reset_staff_password' && $portal_role === 'owner') {
+        $eid = (int)($_POST['emp_id']??0);
+        $emp = safeRow($db, "SELECT * FROM employees WHERE id=:id AND provider_id=:p", [':id'=>$eid,':p'=>$pid]);
+
+        if (!$emp) {
+            $error = 'Employee not found.';
+        } else {
+            $staffRow  = safeRow($db, "SELECT id FROM provider_staff WHERE provider_id=:p AND email=:e AND status='active' AND role != 'owner'", [':p'=>$pid,':e'=>$emp['email']]);
+            $tmp_pwd   = 'Pass@'.rand(10000,99999);
+            $hash      = password_hash($tmp_pwd, PASSWORD_BCRYPT);
+            $full_name = trim($emp['first_name'].' '.$emp['last_name']);
+
+            if ($staffRow) {
+                $db->prepare("UPDATE provider_staff SET password_hash=:h, temp_password=:t, must_change_password=1 WHERE id=:id")
+                   ->execute([':h'=>$hash, ':t'=>$tmp_pwd, ':id'=>$staffRow['id']]);
+            } else {
+                $db->prepare("UPDATE employees SET password_hash=:h, temp_password=:t, must_change_pwd=1 WHERE id=:id")
+                   ->execute([':h'=>$hash, ':t'=>$tmp_pwd, ':id'=>$emp['id']]);
+            }
+
+            $email_sent = sendManagerPasswordResetEmail($emp['email'], $full_name, $tmp_pwd, $portal_company);
+            $success = $email_sent
+                ? "Password reset for <strong>{$full_name}</strong>. A new temporary password was emailed to <strong>{$emp['email']}</strong>."
+                : "Password reset for <strong>{$full_name}</strong>, but the email could not be sent. Share this manually — Temp Password: <code>{$tmp_pwd}</code>";
         }
     }
 }
@@ -378,6 +555,15 @@ tbody tr:hover{background:#fafbfc}
             <button onclick="openPromote(<?= htmlspecialchars(json_encode($e)) ?>)" class="btn btn-sm <?= $e['is_manager'] ? 'btn-warning' : 'btn-success' ?>" title="<?= $e['is_manager'] ? 'Demote to Employee' : 'Promote to Manager' ?>">
                 <i class="fas <?= $e['is_manager'] ? 'fa-user-minus' : 'fa-user-tie' ?>"></i>
             </button>
+            <?php endif; ?>
+            <?php if ($portal_role === 'owner'): ?>
+            <form method="POST" style="display:inline" onsubmit="return confirm('Reset the portal password for <?= htmlspecialchars(addslashes($e['first_name'].' '.$e['last_name'])) ?>? A new temporary password will be emailed to them, and they will need to change it on next login.');">
+                <input type="hidden" name="action" value="reset_staff_password">
+                <input type="hidden" name="emp_id" value="<?= (int)$e['id'] ?>">
+                <button type="submit" class="btn btn-sm" style="background:#f1f5f9;color:#1a2744;border:1px solid var(--border)" title="Reset Password">
+                    <i class="fas fa-key"></i>
+                </button>
+            </form>
             <?php endif; ?>
         </td>
     </tr>

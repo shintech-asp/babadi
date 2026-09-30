@@ -1,13 +1,13 @@
 <?php
 // POST api/v1/portal/hr/leave-requests/reject
-// Access: owner, hr | Tier: Pro required.
+// Access: owner, hr | Tier: free — see approve.php's comment; web enforces
+// no tier check on this action either.
 // Body: request_id
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('POST');
 $staff = require_portal_role('owner', 'hr');
 $pid   = (int)$staff['provider_id'];
-portal_require_pro($pid);
 
 $rid = (int) req_inp('request_id', 'request_id');
 $pdo = db();

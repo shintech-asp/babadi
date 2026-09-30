@@ -1,10 +1,10 @@
 <?php
+// Detail — free-tier viewable, same reasoning as index.php.
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 
 $staff = require_portal_role('owner', 'crm');
-portal_require_pro($staff['provider_id']);
 
 $pid = (int)$staff['provider_id'];
 $id  = (int)inp('id');
@@ -81,9 +81,16 @@ $data = [
         'remaining_amount'=> $row['remaining_amount'] ?? null,
     ],
 
+    // The seeker's control number is deliberately never returned here — the
+    // whole point of the dual-verification handshake is that the seeker
+    // reads it out loud to the technician in person; CRM staff being able to
+    // look it up on-screen would defeat that (same reasoning already applied
+    // to the seeker-side "provider" code on the web dashboard — see
+    // CLAUDE.md's "Dual Control Number Verification" and
+    // "seeker/payment-success-result.php leaked..." log entries). Only the
+    // provider's own code, which staff are meant to share, is included.
     'control_numbers' => [
         'provider' => $row['provider_control_number'],
-        'seeker'   => $row['control_number'],
     ],
 
     'verification' => [
@@ -92,7 +99,12 @@ $data = [
         'dual_verified_at'     => $row['dual_verified_at'],
     ],
 
-    'qr_token' => ($row['status'] === 'starting') ? ($row['qr_token'] ?? null) : null,
+    // qr_token is the seeker's on-arrival proof — the seeker shows it to the
+    // technician on-site, who scans/enters it. It must never be readable by
+    // CRM staff on a screen (same reasoning as the control number above):
+    // that would let staff advance a booking to on_going from the office
+    // with no technician anywhere near the site. Previously returned
+    // whenever status === 'starting'.
 ];
 
 ok(['data' => $data]);

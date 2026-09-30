@@ -1,7 +1,15 @@
 <?php
 // POST /api/v1/portal/finance/income/store
 // Create a new income record for this provider.
-// Access: finance role (owner, finance) + Pro tier
+// Access: finance role (owner, finance) | Tier: free — web's income.php has
+// no tier gate on its 'add'/'delete' POST handlers at all (only a cosmetic
+// banner that claims manual entries "require Pro" without the code
+// enforcing it — confirmed by reading the actual handler, not the banner
+// text). This endpoint previously kept its own Pro gate, which meant the
+// same action succeeded on web and 403'd on mobile for a free-tier user —
+// the exact access-parity bug class already fixed on the read side of this
+// same endpoint. Dropped to match what the web actually does, not what its
+// banner claims.
 //
 // Body (JSON or form): amount, source, description, date
 //   amount      — required, positive numeric
@@ -13,7 +21,6 @@ require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('POST');
 $staff = require_portal_role('owner', 'finance');
-portal_require_pro((int)$staff['provider_id']);
 
 $provider_id = (int)$staff['provider_id'];
 $staff_id    = (int)$staff['id'];
@@ -33,7 +40,9 @@ $amount = (float)$amount;
 if ($amount <= 0) fail('amount must be a positive number', 422);
 
 // Basic date format validation
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) fail('date must be in YYYY-MM-DD format', 422);
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !DateTime::createFromFormat('Y-m-d', $date)) {
+    fail('date must be a valid YYYY-MM-DD date', 422);
+}
 
 $reference_number = 'INC-' . strtoupper(substr(uniqid(), 0, 8));
 

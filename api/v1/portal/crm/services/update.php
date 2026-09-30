@@ -13,9 +13,10 @@ $id = (int)req_inp('id', 'Listing ID');
 
 // Verify ownership. service_listings was merged into services (see
 // CLAUDE.md's "Recent Work Log").
-$stmt = $pdo->prepare('SELECT id FROM services WHERE id = :id AND provider_id = :pid LIMIT 1');
+$stmt = $pdo->prepare('SELECT * FROM services WHERE id = :id AND provider_id = :pid LIMIT 1');
 $stmt->execute([':id' => $id, ':pid' => $pid]);
-if (!$stmt->fetch()) {
+$listing = $stmt->fetch(PDO::FETCH_ASSOC);
+if (!$listing) {
     fail('Listing not found.', 404);
 }
 
@@ -68,6 +69,21 @@ if ($is_emergency !== null) {
     $params[':is_emergency'] = $is_emergency ? 1 : 0;
 }
 
+// Non-fixed pricing can't be charged upfront — force requires_inspection on
+// regardless of what was posted, using whichever pricing_type is in effect
+// after this update (the new value if provided, else the listing's current
+// one). Mirrors provider/services.php's edit handler and api/v1/provider/
+// listings/update.php exactly (this endpoint was missing the rule entirely).
+$effectivePricingType = $pricing_type ?? $listing['pricing_type'];
+$requires_inspection = inp('requires_inspection');
+if ($effectivePricingType !== 'fixed') {
+    $fields[] = 'requires_inspection = :requires_inspection';
+    $params[':requires_inspection'] = 1;
+} elseif ($requires_inspection !== null) {
+    $fields[] = 'requires_inspection = :requires_inspection';
+    $params[':requires_inspection'] = $requires_inspection ? 1 : 0;
+}
+
 if (empty($fields)) {
     fail('No fields provided to update.');
 }
@@ -79,4 +95,4 @@ $sql = 'UPDATE services SET ' . implode(', ', $fields)
 
 $pdo->prepare($sql)->execute($params);
 
-ok(['message' => 'Listing updated.']);
+ok(['data' => ['message' => 'Listing updated.']]);

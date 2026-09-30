@@ -32,66 +32,12 @@ $is_local_test_mode = in_array($remoteAddr, ['127.0.0.1', '::1'], true)
 $test_service_day_booking_id = $is_local_test_mode
     ? max(0, (int)($_GET['test_service_day_booking'] ?? 0))
     : 0;
-function getProviderSettingValue($db, int $providerId, string $key, string $default = ''): string {
-    try {
-        $stmt = $db->prepare("SELECT setting_value FROM admin_settings WHERE setting_key = :k LIMIT 1");
-        $stmt->execute([':k' => "provider_{$providerId}_{$key}"]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? (string)$row['setting_value'] : $default;
-    } catch (Exception $e) {
-        return $default;
-    }
-}
-
-// normalizeWorkflowStatus() now lives in includes/booking_workflow_helper.php
-// (required above) so seeker-side pages can share the exact same bridge.
-
-function proposedTimeFitsProviderSchedule(PDO $db, int $providerId, string $date, string $time): bool
-{
-    $start = getProviderSettingValue($db, $providerId, 'working_hours_start', '09:00');
-    $end = getProviderSettingValue($db, $providerId, 'working_hours_end', '17:00');
-    $slotMinutes = (int)getProviderSettingValue($db, $providerId, 'working_slot_minutes', '60');
-
-    $timePattern = '/^(?:[01]\d|2[0-3]):[0-5]\d$/';
-    if (!preg_match($timePattern, $start)) { $start = '09:00'; }
-    if (!preg_match($timePattern, $end)) { $end = '17:00'; }
-    if ($slotMinutes < 5 || $slotMinutes > 180) { $slotMinutes = 60; }
-
-    $startTs = strtotime($date . ' ' . $start . ':00');
-    $endTs = strtotime($date . ' ' . $end . ':00');
-    $slotTs = strtotime($date . ' ' . $time);
-
-    if ($startTs === false || $endTs === false || $slotTs === false || $endTs <= $startTs) {
-        return false;
-    }
-
-    if ($slotTs < $startTs || $slotTs > $endTs) {
-        return false;
-    }
-
-    return (($slotTs - $startTs) % ($slotMinutes * 60)) === 0;
-}
-
-function providerHasBookingConflict(PDO $db, int $providerId, int $currentAvailId, string $date, string $time): bool
-{
-    $stmt = $db->prepare(
-        "SELECT COUNT(*)
-         FROM availed_services
-         WHERE provider_id = :pid
-           AND id <> :id
-           AND preferred_date = :preferred_date
-           AND preferred_time = :preferred_time
-           AND status NOT IN ('cancelled', 'completed')"
-    );
-    $stmt->execute([
-        ':pid' => $providerId,
-        ':id' => $currentAvailId,
-        ':preferred_date' => $date,
-        ':preferred_time' => $time,
-    ]);
-
-    return (int)$stmt->fetchColumn() > 0;
-}
+// getProviderSettingValue(), proposedTimeFitsProviderSchedule(), and
+// providerHasBookingConflict() now live in includes/booking_workflow_helper.php
+// (required above) so api/v1/provider/requests/reschedule.php's mobile
+// equivalent shares the exact same validation instead of a second,
+// independently-drifting copy. normalizeWorkflowStatus() made the same move
+// earlier for the same reason (seeker-side pages needed it too).
 
 // Resolve provider_id from session or fetch by user_id
 $provider_id = $_SESSION['provider_id'] ?? null;

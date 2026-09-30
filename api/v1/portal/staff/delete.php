@@ -41,4 +41,4 @@ $upd = $pdo->prepare(
 );
 $upd->execute([$target_id, $pid]);
 
-ok(['message' => 'Staff member deactivated successfully', 'id' => $target_id]);
+ok(['data' => ['message' => 'Staff member deactivated successfully', 'id' => $target_id]]);

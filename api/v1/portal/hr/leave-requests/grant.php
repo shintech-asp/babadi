@@ -3,7 +3,8 @@
 // HR directly grants paid leave for an employee — auto-approved so it
 // counts toward payroll's attendance computation right away. Mirrors
 // provider-portal/leave-requests.php's 'add' action.
-// Access: owner, hr | Tier: Pro required.
+// Access: owner, hr | Tier: free — see approve.php's comment; the web's
+// 'add' action (this is that same handler) has no tier check either.
 //
 // Body: employee_id, leave_type, start_date, end_date, reason (optional)
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
@@ -12,7 +13,6 @@ require_once 'provider-portal/includes/leave_balance_helper.php';
 allow('POST');
 $staff = require_portal_role('owner', 'hr');
 $pid   = (int)$staff['provider_id'];
-portal_require_pro($pid);
 
 $eid    = (int) req_inp('employee_id', 'employee_id');
 $type   = req_inp('leave_type', 'leave_type');

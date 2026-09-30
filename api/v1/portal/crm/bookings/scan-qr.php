@@ -29,4 +29,4 @@ if (!$ok) {
     fail('Could not update booking status.', 422);
 }
 
-ok(['message' => 'Service started!']);
+ok(['data' => ['message' => 'Service started!']]);

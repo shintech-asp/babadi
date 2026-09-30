@@ -34,6 +34,14 @@ if ($actor['account_type'] === 'staff') {
             'email'                => $row['email'],
             'role'                 => $row['role'],
             'department'           => $row['department'],
+            // Not a provider_staff column — carried over from the JWT (see
+            // require_portal_actor()'s normalized shape), since a promoted
+            // staff member's field-tech status is determined by their linked
+            // employees row, not by provider_staff itself. Was missing
+            // entirely here, so isFieldTech-gated nav (e.g. "My Assigned
+            // Services") never showed for a staff+field-tech account even
+            // though api/v1/portal/me/bookings.php already serves them fine.
+            'staff_type'           => $actor['staff_type'],
             'must_change_password' => (bool)$row['must_change_password'],
             'status'               => $row['status'],
             'last_login'           => $row['last_login'],

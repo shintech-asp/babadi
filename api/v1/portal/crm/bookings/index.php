@@ -1,10 +1,12 @@
 <?php
+// List — free-tier viewable: web's crm-bookings.php renders its whole
+// booking list regardless of tier, gating only the accept/reject actions on
+// `$tier_is_paid` (see update-status.php, which keeps its own Pro gate).
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 
 allow('GET');
 
 $staff = require_portal_role('owner', 'crm');
-portal_require_pro($staff['provider_id']);
 
 $pid    = (int)$staff['provider_id'];
 $status = inp('status');

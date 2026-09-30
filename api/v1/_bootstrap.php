@@ -159,3 +159,161 @@ function user_payload(array $u): array {
         'email_verified'=> (bool)($u['email_verified'] ?? false),
     ];
 }
+
+// ── Portal login resolution (provider_staff + employees tiers) ────────────────
+// Shared by api/v1/auth/login.php (the centralized login every mobile screen
+// actually calls) and api/v1/portal/auth/login.php (a standalone endpoint
+// that still works on its own) — previously each had its own independent
+// copy of this credential/JWT-claim logic, exactly the kind of drifting
+// duplicate this codebase has been bitten by before (see CLAUDE.md's
+// "Recent Work Log"). $identifier matches username/email for provider_staff,
+// or email/employee_id code for employees. Returns null if neither tier
+// matches; otherwise ['account_type', 'must_change_password', 'token_claims',
+// 'staff'] — caller calls jwt_issue(token_claims) itself so each endpoint's
+// own response envelope shape is unaffected.
+function resolve_portal_login(string $identifier, string $password): ?array {
+    $pdo = db();
+
+    // Tier: provider_staff (promoted portal staff — owner/hr/finance/crm)
+    $stmt = $pdo->prepare(
+        "SELECT ps.*, p.company_name
+         FROM provider_staff ps
+         JOIN providers p ON p.id = ps.provider_id
+         WHERE (ps.username = :u OR ps.email = :u) AND ps.status = 'active'
+         LIMIT 1"
+    );
+    $stmt->execute([':u' => $identifier]);
+    $staff = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($staff) {
+        $passwordValid = false;
+        $usedTemp = false;
+        if (!empty($staff['password_hash']) && password_verify($password, $staff['password_hash'])) {
+            $passwordValid = true;
+        } elseif (!empty($staff['temp_password']) && hash_equals((string)$staff['temp_password'], $password)) {
+            $passwordValid = true;
+            $usedTemp = true;
+        }
+
+        if ($passwordValid) {
+            // A promoted staff member may also have a matching HR employee
+            // record (auto-created by staff.php, or linked by email) —
+            // carry that over in the JWT so they can also use self-service
+            // endpoints (api/v1/portal/me/*) under their own staff login.
+            $linkedEmp = null;
+            try {
+                $linkStmt = $pdo->prepare("SELECT id, staff_type FROM employees WHERE provider_id = :pid AND email = :email LIMIT 1");
+                $linkStmt->execute([':pid' => (int)$staff['provider_id'], ':email' => $staff['email']]);
+                $linkedEmp = $linkStmt->fetch(PDO::FETCH_ASSOC);
+            } catch (Exception $e) {}
+
+            $mustChange = $usedTemp ? true : ((int)$staff['must_change_password'] === 1);
+
+            $pdo->prepare("UPDATE provider_staff SET last_login = NOW() WHERE id = :id")->execute([':id' => (int)$staff['id']]);
+            if ($usedTemp && !$staff['must_change_password']) {
+                $pdo->prepare("UPDATE provider_staff SET must_change_password = 1 WHERE id = :id")->execute([':id' => (int)$staff['id']]);
+            }
+            // A successful real-password login means temp_password is stale —
+            // clear it so it can't keep working as a permanent alternate
+            // credential (change-password.php already clears it on an
+            // explicit change, but a staff member whose password_hash was
+            // updated some other way could otherwise still log in with the
+            // old temp password forever).
+            if (!$usedTemp && !empty($staff['temp_password'])) {
+                $pdo->prepare("UPDATE provider_staff SET temp_password = NULL WHERE id = :id")->execute([':id' => (int)$staff['id']]);
+            }
+
+            return [
+                'account_type' => 'staff',
+                'must_change_password' => $mustChange,
+                'token_claims' => [
+                    'sub'         => (int)$staff['id'],
+                    'user_type'   => 'portal_staff',
+                    'role'        => $staff['role'],
+                    'provider_id' => (int)$staff['provider_id'],
+                    'employee_id' => $linkedEmp ? (int)$linkedEmp['id'] : 0,
+                    'staff_type'  => $linkedEmp['staff_type'] ?? 'office',
+                ],
+                'staff' => [
+                    'id'           => (int)$staff['id'],
+                    'username'     => $staff['username'],
+                    'email'        => $staff['email'],
+                    'role'         => $staff['role'],
+                    'provider_id'  => (int)$staff['provider_id'],
+                    'employee_id'  => $linkedEmp ? (int)$linkedEmp['id'] : 0,
+                    'company_name' => $staff['company_name'],
+                ],
+            ];
+        }
+    }
+
+    // Tier: employees (plain self-service, not promoted) — accepts email or
+    // employee_id code (e.g. "EMP-XXX-1234"). Only checked when $staff was
+    // never found above — a provider_staff row matching this identifier
+    // means it IS a promoted portal-staff account, so a wrong password
+    // there must fail outright rather than silently retrying against the
+    // employees table. Without this guard, a promoted manager entering
+    // their OLD employee password (instead of the brand-new username+temp
+    // password the promotion generated) would quietly log in via their
+    // still-active employees row with plain self-service only — the
+    // "promoted to HR Manager but the app only shows Time In/Out, Leave,
+    // Payslips" bug. Mirrors the same fix in auth/login.php.
+    $emp = null;
+    if (!$staff) {
+        $empStmt = $pdo->prepare(
+            "SELECT e.*, p.company_name FROM employees e
+             JOIN providers p ON p.id = e.provider_id
+             WHERE (e.email = :u OR e.employee_id = :u) AND e.status = 'active'
+             LIMIT 1"
+        );
+        $empStmt->execute([':u' => $identifier]);
+        $emp = $empStmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    if ($emp) {
+        $passwordValid = false;
+        $usedTemp = false;
+        if (!empty($emp['password_hash']) && password_verify($password, $emp['password_hash'])) {
+            $passwordValid = true;
+        } elseif (!empty($emp['temp_password']) && hash_equals((string)$emp['temp_password'], $password)) {
+            $passwordValid = true;
+            $usedTemp = true;
+        }
+
+        if ($passwordValid) {
+            $mustChange = $usedTemp ? true : ((int)($emp['must_change_pwd'] ?? 0) === 1);
+            if ($usedTemp && !$emp['must_change_pwd']) {
+                $pdo->prepare("UPDATE employees SET must_change_pwd = 1 WHERE id = :id")->execute([':id' => (int)$emp['id']]);
+            }
+            // See the matching comment in the provider_staff tier above.
+            if (!$usedTemp && !empty($emp['temp_password'])) {
+                $pdo->prepare("UPDATE employees SET temp_password = NULL WHERE id = :id")->execute([':id' => (int)$emp['id']]);
+            }
+
+            return [
+                'account_type' => 'employee',
+                'must_change_password' => $mustChange,
+                'token_claims' => [
+                    'sub'         => (int)$emp['id'],
+                    'user_type'   => 'portal_employee',
+                    'provider_id' => (int)$emp['provider_id'],
+                    'staff_type'  => $emp['staff_type'] ?? 'office',
+                ],
+                'staff' => [
+                    'id'            => 0,
+                    'employee_id'   => (int)$emp['id'],
+                    'employee_code' => $emp['employee_id'],
+                    'full_name'     => trim($emp['first_name'] . ' ' . $emp['last_name']),
+                    'email'         => $emp['email'],
+                    'role'          => 'employee',
+                    'department'    => $emp['department'],
+                    'staff_type'    => $emp['staff_type'] ?? 'office',
+                    'provider_id'   => (int)$emp['provider_id'],
+                    'company_name'  => $emp['company_name'],
+                ],
+            ];
+        }
+    }
+
+    return null;
+}

@@ -1,7 +1,10 @@
 <?php
 // GET api/v1/portal/hr/leave-requests
 // List leave requests for HR/owner to review — mirrors
-// provider-portal/leave-requests.php. Access: owner, hr | Tier: Pro required.
+// provider-portal/leave-requests.php. Access: owner, hr | Tier: free-viewable
+// (web's page itself has no tier gate at all — it renders the list under a
+// "Free Tier — View Only" banner and only disables the approve/reject/grant
+// actions; those three endpoints keep their own portal_require_pro() call).
 //
 // Query params: status (pending|approved|rejected, optional), page, limit
 require_once dirname(__DIR__, 2) . '/_bootstrap.php';
@@ -9,7 +12,6 @@ require_once dirname(__DIR__, 2) . '/_bootstrap.php';
 allow('GET');
 $staff = require_portal_role('owner', 'hr');
 $pid   = (int)$staff['provider_id'];
-portal_require_pro($pid);
 
 ['page' => $page, 'limit' => $limit, 'offset' => $offset] = paginate();
 
@@ -40,6 +42,18 @@ $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// PDO emulated prepares return every column as a string (lr.* is never cast
+// anywhere below), so the Flutter client's `(row['id'] as num).toInt()` was
+// throwing a TypeError on "1" before the HTTP call for approve/reject even
+// happened — every tap on Approve/Reject silently failed. Casting the
+// numeric ids here matches the convention already used by every other
+// portal list endpoint (payroll/index.php, staff/index.php, etc).
+foreach ($rows as &$row) {
+    $row['id'] = (int)$row['id'];
+    $row['employee_id'] = (int)$row['employee_id'];
+}
+unset($row);
 
 $counts = [];
 foreach (['pending', 'approved', 'rejected'] as $s) {

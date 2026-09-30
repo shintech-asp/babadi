@@ -3,10 +3,12 @@
 //
 // Mirrors the web's `auth/login.php` shared login page instead of each role
 // family needing its own login screen: checked in the SAME order the web
-// uses — admin_users → provider_staff (portal staff) → users (seeker /
-// provider owner / legacy users.user_type='admin' rows). The request field
-// is still named 'email' for backward compatibility, but — matching the web
-// — every tier except the final 'users' one accepts a username too.
+// uses — admin_users → provider_staff (portal staff) → employees (plain,
+// non-promoted self-service accounts) → users (seeker / provider owner /
+// legacy users.user_type='admin' rows). The request field is still named
+// 'email' for backward compatibility, but — matching the web — every tier
+// except the final 'users' one accepts a username (or, for employees, their
+// employee_id code) too.
 //
 // A row matching the identifier but failing the password check falls
 // through to the next tier rather than failing immediately, exactly like
@@ -66,56 +68,19 @@ if ($admin) {
     }
 }
 
-// ── 2. provider_staff (portal staff) ────────────────────────────────────────
-$stmt = $pdo->prepare(
-    "SELECT ps.*, p.company_name
-     FROM provider_staff ps
-     JOIN providers p ON p.id = ps.provider_id
-     WHERE (ps.username = :id OR ps.email = :id) AND ps.status = 'active'
-     LIMIT 1"
-);
-$stmt->execute([':id' => $identifier]);
-$staff = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if ($staff) {
-    $hashOk = !empty($staff['password_hash']) && password_verify($password, $staff['password_hash']);
-    $tempOk = !$hashOk && !empty($staff['temp_password']) && hash_equals((string)$staff['temp_password'], $password);
-
-    if ($hashOk || $tempOk) {
-        $mustChange = $tempOk ? 1 : (int)($staff['must_change_password'] ?? 0);
-
-        try {
-            if ($tempOk) {
-                $pdo->prepare("UPDATE provider_staff SET must_change_password = 1, last_login = NOW() WHERE id = :id")
-                    ->execute([':id' => $staff['id']]);
-            } else {
-                $pdo->prepare("UPDATE provider_staff SET last_login = NOW() WHERE id = :id")
-                    ->execute([':id' => $staff['id']]);
-            }
-        } catch (Throwable $e) {
-            error_log('[auth/login] Failed to update provider_staff on login: ' . $e->getMessage());
-        }
-
-        $token = jwt_issue([
-            'sub'         => (int)$staff['id'],
-            'user_type'   => 'portal_staff',
-            'role'        => $staff['role'],
-            'provider_id' => (int)$staff['provider_id'],
-        ]);
-
-        ok([
-            'token'                => $token,
-            'must_change_password' => (bool)$mustChange,
-            'staff'                => [
-                'id'           => (int)$staff['id'],
-                'username'     => $staff['username'],
-                'email'        => $staff['email'],
-                'role'         => $staff['role'],
-                'provider_id'  => (int)$staff['provider_id'],
-                'company_name' => $staff['company_name'],
-            ],
-        ]);
-    }
+// ── 2. provider_staff (portal staff) and employees (plain self-service) ────
+// Shared with api/v1/portal/auth/login.php via resolve_portal_login() —
+// see api/v1/_bootstrap.php — so the two logins can't drift on credential
+// checks or JWT claims.
+$portalMatch = resolve_portal_login($identifier, $password);
+if ($portalMatch) {
+    $token = jwt_issue($portalMatch['token_claims']);
+    ok([
+        'token'                => $token,
+        'must_change_password' => $portalMatch['must_change_password'],
+        'account_type'         => $portalMatch['account_type'],
+        'staff'                => $portalMatch['staff'],
+    ]);
 }
 
 // ── 3. users (seeker / provider owner / legacy users.user_type='admin') ────
