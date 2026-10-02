@@ -65,6 +65,32 @@ if ($is_eco_friendly !== null) {
     $params[':is_eco_friendly'] = $is_eco_friendly ? 1 : 0;
 }
 
+$equipment_notes = inp('equipment_notes');
+if ($equipment_notes !== null) {
+    $fields[] = 'equipment_notes = :equipment_notes';
+    $params[':equipment_notes'] = trim($equipment_notes) !== '' ? trim($equipment_notes) : null;
+}
+
+$duration = inp('duration');
+if ($duration !== null) {
+    $duration = trim((string)$duration);
+    if ($duration === '' || !ctype_digit($duration) || (int)$duration <= 0) {
+        fail('A valid duration is required.');
+    }
+    $fields[] = 'duration = :duration';
+    $params[':duration'] = (int)$duration;
+}
+
+$duration_unit = inp('duration_unit');
+if ($duration_unit !== null) {
+    $duration_unit = trim($duration_unit);
+    if (!in_array($duration_unit, ['minute', 'hour', 'day'], true)) {
+        fail('duration_unit must be minute, hour, or day.');
+    }
+    $fields[] = 'duration_unit = :duration_unit';
+    $params[':duration_unit'] = $duration_unit;
+}
+
 // Non-fixed pricing can't be charged upfront — force requires_inspection on
 // regardless of what was posted, using whichever pricing_type is in effect
 // after this update (the new value if provided, else the listing's current
@@ -145,6 +171,42 @@ if (!empty($newImages)) {
     }
     $fields[] = 'images = :images';
     $params[':images'] = json_encode($finalImages);
+}
+
+// Video — a new upload always replaces the existing one (one video per
+// listing, same as the web's provider/services.php edit handler).
+if (!empty($_FILES['videos']) || !empty($_FILES['video'])) {
+    $videoUploadDir = dirname(__DIR__, 2) . '/uploads/listings/';
+    if (!is_dir($videoUploadDir)) {
+        mkdir($videoUploadDir, 0775, true);
+    }
+
+    $vFile = !empty($_FILES['videos'])
+        ? (is_array($_FILES['videos']['name']) ? [
+            'name'     => $_FILES['videos']['name'][0] ?? '',
+            'type'     => $_FILES['videos']['type'][0] ?? '',
+            'tmp_name' => $_FILES['videos']['tmp_name'][0] ?? '',
+            'error'    => $_FILES['videos']['error'][0] ?? UPLOAD_ERR_NO_FILE,
+            'size'     => $_FILES['videos']['size'][0] ?? 0,
+          ] : $_FILES['videos'])
+        : $_FILES['video'];
+
+    if ($vFile['error'] === UPLOAD_ERR_OK) {
+        if ($vFile['size'] > 20 * 1024 * 1024) {
+            fail('Video too large (max 20MB)');
+        }
+        $vExt = strtolower(pathinfo($vFile['name'], PATHINFO_EXTENSION));
+        if (!in_array($vExt, ['mp4', 'mov'], true)) {
+            fail('Only mp4 and mov videos are allowed.');
+        }
+        $vFilename = uniqid('listing_vid_', true) . '.' . $vExt;
+        $vDest = $videoUploadDir . $vFilename;
+        if (!move_uploaded_file($vFile['tmp_name'], $vDest)) {
+            fail('Failed to save uploaded video');
+        }
+        $fields[] = 'videos = :videos';
+        $params[':videos'] = json_encode(['uploads/listings/' . $vFilename]);
+    }
 }
 
 if (empty($fields)) {

@@ -79,10 +79,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $geo_verified = ($_POST['geo_verified'] ?? '0') === '1';
     
     // Validate required fields
+    //
+    // The geo_verified/latitude/longitude hard-requirement was removed —
+    // this page never actually persists lat/lng anywhere (the UPDATE below
+    // only ever touched address/city/state/zip_code), so requiring a
+    // successful Nominatim reverse-geocode call just to flip a client-side
+    // flag was a pure UX gate with no data benefit, and a single point of
+    // failure: GPS permission denial, a slow/down/rate-limited external API,
+    // or a detected city string not exactly matching the hardcoded Cavite
+    // list all left the user with zero way to proceed. The real Cavite-only
+    // business rule is already fully enforced below via $caviteCityLookup,
+    // which is independent of the client and can't be bypassed by skipping
+    // geolocation — the <select> only ever offers valid Cavite cities to
+    // begin with. Geolocation/map-pin is now pure auto-fill convenience.
     if (empty($address) || empty($city)) {
         $error = "Address and City are required!";
-    } elseif (!$geo_verified || $latitude === '' || $longitude === '') {
-        $error = "Please use your current location and verify it is within Cavite before submitting.";
     } elseif (!isset($caviteCityLookup[$normalizeLocationToken($city)])) {
         $error = "Only Cavite addresses are allowed. Please choose a valid city/municipality in Cavite.";
     } elseif ($state !== '' && $normalizeLocationToken($state) !== 'cavite') {
@@ -407,10 +418,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <form method="POST" action="" id="setupForm">
             <div class="form-group">
                 <label>Street Address <span class="required">*</span></label>
-                <textarea name="address" required class="form-control" 
+                <textarea name="address" required class="form-control"
                           id="addressInput"
-                          placeholder="Use geolocation to auto-fill your Cavite address"><?php echo isset($_POST['address']) ? htmlspecialchars($_POST['address']) : ''; ?></textarea>
-                <div class="help-text">Tap "Use My Current Location" to verify and auto-fill your Cavite address.</div>
+                          placeholder="Enter your address, e.g. 123 Rizal St., Brgy. San Jose"><?php echo isset($_POST['address']) ? htmlspecialchars($_POST['address']) : ''; ?></textarea>
+                <div class="help-text">Type your address directly, or tap "Use My Current Location" / "Open Map Picker" to auto-fill it.</div>
                 <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
                     <button type="button" class="btn-submit" id="geoBtn" style="width:auto;padding:12px 16px;font-size:14px;">
                         <i class="fas fa-location-crosshairs"></i>
@@ -668,12 +679,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             });
 
             form.addEventListener('submit', function (e) {
-                if (geoVerifiedInput.value !== '1') {
-                    e.preventDefault();
-                    setGeoStatus('Please verify your location first. Only Cavite addresses can be submitted.', 'error');
-                    return;
-                }
-
+                // Geolocation/map-pin is optional auto-fill convenience, not
+                // a submit requirement — the City dropdown is already
+                // restricted to valid Cavite municipalities, and the server
+                // independently re-validates it regardless of whether
+                // geolocation was used at all. Address and City still go
+                // through normal HTML5 `required` validation.
                 const btnContent = submitBtn.innerHTML;
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Saving...</span>';
                 submitBtn.disabled = true;

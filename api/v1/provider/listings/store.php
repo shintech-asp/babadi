@@ -32,6 +32,15 @@ if (!$cat_stmt->fetch()) {
 
 $is_emergency_available = (bool) inp('is_emergency_available', false);
 $is_eco_friendly = (bool) inp('is_eco_friendly', false);
+$equipment_notes = trim((string) inp('equipment_notes', ''));
+$duration = trim((string) inp('duration', ''));
+$duration_unit = trim((string) inp('duration_unit', 'hour'));
+if (!in_array($duration_unit, ['minute', 'hour', 'day'], true)) {
+    $duration_unit = 'hour';
+}
+if ($duration === '' || !ctype_digit($duration) || (int)$duration <= 0) {
+    fail('A valid duration is required.');
+}
 // Non-fixed pricing can't be charged upfront — the final price is only
 // knowable after an on-site inspection, so it forces requires_inspection
 // on regardless of what was posted. Mirrors the same rule in
@@ -113,15 +122,61 @@ if ($files_raw !== null) {
 
 $images_json = json_encode($image_paths);
 
+// Video upload — same pattern as images above, one file max.
+$video_paths = [];
+$allowed_video_mime = ['video/mp4', 'video/quicktime'];
+$allowed_video_ext  = ['mp4', 'mov'];
+$max_video_size     = 20 * 1024 * 1024; // 20MB
+
+$video_file_raw = null;
+if (!empty($_FILES['videos']['name']) && is_array($_FILES['videos']['name'])) {
+    // Array-style upload, e.g. field name "videos[]".
+    $video_file_raw = [
+        'name'     => $_FILES['videos']['name'][0] ?? '',
+        'type'     => $_FILES['videos']['type'][0] ?? '',
+        'tmp_name' => $_FILES['videos']['tmp_name'][0] ?? '',
+        'error'    => $_FILES['videos']['error'][0] ?? UPLOAD_ERR_NO_FILE,
+        'size'     => $_FILES['videos']['size'][0] ?? 0,
+    ];
+} elseif (!empty($_FILES['videos']['name'])) {
+    // Single file uploaded under plain "videos" (e.g. the Flutter app's
+    // MultipartFile, which has no array brackets).
+    $video_file_raw = $_FILES['videos'];
+} elseif (!empty($_FILES['video']['name'])) {
+    $video_file_raw = $_FILES['video'];
+}
+
+if ($video_file_raw !== null && $video_file_raw['error'] === UPLOAD_ERR_OK) {
+    if ($video_file_raw['size'] > $max_video_size) {
+        fail('Video must be 20MB or smaller.');
+    }
+    $v_ext = strtolower(pathinfo($video_file_raw['name'], PATHINFO_EXTENSION));
+    if (!in_array($v_ext, $allowed_video_ext, true)) {
+        fail('Only mp4 and mov videos are allowed.');
+    }
+    $v_mime = mime_content_type($video_file_raw['tmp_name']);
+    if (!in_array($v_mime, $allowed_video_mime, true)) {
+        fail('Invalid video file type detected.');
+    }
+    $v_filename  = uniqid('svc_', true) . '.' . $v_ext;
+    $v_dest_path = $upload_dir . $v_filename;
+    if (!move_uploaded_file($video_file_raw['tmp_name'], $v_dest_path)) {
+        fail('Failed to save uploaded video.');
+    }
+    $video_paths[] = 'uploads/services/' . $v_filename;
+}
+
+$videos_json = !empty($video_paths) ? json_encode($video_paths) : null;
+
 // service_listings was merged into services (the same table the web app's
 // own provider/services.php and the seeker booking flow use) so a service
 // created here is now visible and bookable through the website too — see
 // CLAUDE.md's "Recent Work Log" for the full centralization writeup.
 $stmt = $pdo->prepare(
     'INSERT INTO services
-        (provider_id, service_name, description, price, pricing_type, category_id, images, is_eco_friendly, is_emergency_available, requires_inspection, status, created_at)
+        (provider_id, service_name, description, price, pricing_type, category_id, equipment_notes, duration, duration_unit, images, videos, is_eco_friendly, is_emergency_available, requires_inspection, status, created_at)
      VALUES
-        (:provider_id, :service_name, :description, :price, :pricing_type, :category_id, :images, :is_eco_friendly, :is_emergency_available, :requires_inspection, :status, NOW())'
+        (:provider_id, :service_name, :description, :price, :pricing_type, :category_id, :equipment_notes, :duration, :duration_unit, :images, :videos, :is_eco_friendly, :is_emergency_available, :requires_inspection, :status, NOW())'
 );
 
 $stmt->execute([
@@ -131,11 +186,20 @@ $stmt->execute([
     ':price'                 => (float)$price,
     ':pricing_type'          => $pricing_type,
     ':category_id'           => (int)$category_id,
+    ':equipment_notes'       => $equipment_notes !== '' ? $equipment_notes : null,
+    ':duration'              => (int)$duration,
+    ':duration_unit'         => $duration_unit,
     ':images'                => $images_json,
+    ':videos'                => $videos_json,
     ':is_eco_friendly'       => $is_eco_friendly ? 1 : 0,
     ':is_emergency_available' => $is_emergency_available ? 1 : 0,
     ':requires_inspection'   => $requires_inspection ? 1 : 0,
-    ':status'                => 'active',
+    // Starts inactive (draft) — matches the same fix applied to the web's
+    // provider/services.php: a newly-created listing was instantly
+    // bookable by seekers before the provider had finished filling in
+    // details/photos/etc. The mobile app's edit screen already supports
+    // flipping status to 'active' via update.php once it's ready.
+    ':status'                => 'inactive',
 ]);
 
 $new_id = (int)$pdo->lastInsertId();

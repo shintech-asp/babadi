@@ -81,10 +81,17 @@ if ($current_sub) {
     ];
 }
 
+// Trial-eligible = never had any subscription row before (trial or paid)
+// — same rule as the web's subscriptions.php. One free trial, ever.
+$everHadSub_stmt = $pdo->prepare('SELECT COUNT(*) FROM provider_subscriptions WHERE provider_id = ?');
+$everHadSub_stmt->execute([$provider_id]);
+$trial_eligible = ((int)$everHadSub_stmt->fetchColumn()) === 0;
+
 ok([
-    'tier'         => $tier_label,
-    'tier_expires' => $tier_expires,
-    'tier_grace'   => $tier_grace,
-    'subscription' => $subscription,
-    'plans'        => $plans,
+    'tier'            => $tier_label,
+    'tier_expires'    => $tier_expires,
+    'tier_grace'      => $tier_grace,
+    'subscription'    => $subscription,
+    'plans'           => $plans,
+    'trial_eligible'  => $trial_eligible,
 ]);

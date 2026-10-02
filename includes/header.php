@@ -152,7 +152,18 @@ $provider_dashboard_active = in_array($current_page, ['dashboard', 'providers-da
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <?php /* assets/images/favicon.ico previously pointed at a file that
+             didn't exist on disk at all — now generated from the real logo
+             (assets/images/pestify.png), with PNG variants for crisper
+             rendering in Chrome/Firefox/Safari, which prefer those over a
+             bare .ico link. A copy also sits at the true site root
+             (/favicon.ico), which browsers request automatically regardless
+             of any <link> tag — that one covers admin/provider-portal/auth,
+             none of which share this header file. */ ?>
     <link rel="icon" type="image/x-icon" href="<?php echo appUrl('assets/images/favicon.ico'); ?>">
+    <link rel="icon" type="image/png" sizes="32x32" href="<?php echo appUrl('assets/images/favicon-32x32.png'); ?>">
+    <link rel="icon" type="image/png" sizes="16x16" href="<?php echo appUrl('assets/images/favicon-16x16.png'); ?>">
+    <link rel="apple-touch-icon" sizes="180x180" href="<?php echo appUrl('assets/images/apple-touch-icon.png'); ?>">
     <?php if (!empty($extra_head)) echo $extra_head; ?>
     <style>
         /* ─── Notification Bell ──────────────────────────────────── */

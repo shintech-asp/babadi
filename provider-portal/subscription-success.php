@@ -87,7 +87,7 @@ if ($verified) {
         // Idempotency: only activate if still pending
         $stmt = $db->prepare(
             "UPDATE provider_subscriptions
-             SET status='active', billing_cycle=:cycle, expires_at=:exp, grace_ends_at=:grace, updated_at=NOW()
+             SET status='active', billing_cycle=:cycle, expires_at=:exp, grace_ends_at=:grace, started_at=COALESCE(started_at, NOW()), updated_at=NOW()
              WHERE id=:id AND status='pending'"
         );
         $stmt->execute([':cycle' => $cycle, ':exp' => $expiry, ':grace' => $grace, ':id' => (int)$sub['id']]);

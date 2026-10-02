@@ -1,1 +1,3 @@
 /config/secrets.php
+/config/access_gate.php
+/.env

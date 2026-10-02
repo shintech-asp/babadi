@@ -1155,6 +1155,29 @@ chdir(dirname(__DIR__));
                         <p class="about-text"><?php echo nl2br(htmlspecialchars($provider['description'] ?? 'No description available.')); ?></p>
                     </div>
 
+                    <?php
+                        $portfolioImages = json_decode($provider['portfolio_images'] ?? '[]', true) ?: [];
+                        $portfolioVideos = json_decode($provider['portfolio_videos'] ?? '[]', true) ?: [];
+                    ?>
+                    <?php if (!empty($portfolioImages) || !empty($portfolioVideos)): ?>
+                    <div class="section-card" style="margin-top:24px;">
+                        <div class="section-eyebrow">Gallery</div>
+                        <h2 class="section-title"><i class="fas fa-images"></i> Our Work</h2>
+                        <?php if (!empty($portfolioImages)): ?>
+                        <div style="display:flex;flex-wrap:wrap;gap:10px;<?php echo !empty($portfolioVideos) ? 'margin-bottom:14px;' : ''; ?>">
+                            <?php foreach ($portfolioImages as $pimg): ?>
+                            <a href="<?php echo htmlspecialchars(siteUrl($pimg)); ?>" target="_blank" rel="noopener">
+                                <img src="<?php echo htmlspecialchars(siteUrl($pimg)); ?>" style="width:110px;height:110px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;">
+                            </a>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (!empty($portfolioVideos)): ?>
+                        <video src="<?php echo htmlspecialchars(siteUrl($portfolioVideos[0])); ?>" controls style="max-width:100%;max-height:320px;border-radius:10px;"></video>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+
                     <!-- Reviews — horizontal-scroll carousel, not a long stacked list. -->
                     <?php if(count($reviews) > 0): ?>
                     <div class="section-card" style="margin-top:24px;">
@@ -1219,10 +1242,29 @@ chdir(dirname(__DIR__));
                                 $ps_pct   = (float)($ps['dp_percent'] ?? 50);
                                 $ps_fixed = (float)($ps['dp_fixed']   ?? 0);
                             ?>
+                            <?php
+                                $durationUnitLabels = ['minute' => 'min', 'hour' => 'hr', 'day' => 'day'];
+                                $svcDuration = $service['duration'] ?? null;
+                                $svcDurationUnit = $service['duration_unit'] ?? 'hour';
+                                $svcEquipmentNotes = trim($service['equipment_notes'] ?? '');
+                            ?>
                             <div class="pd-svc-item" id="service-card-<?php echo (int)$service['id']; ?>">
                                 <div class="pd-svc-name"><?php echo htmlspecialchars($service['service_name']); ?></div>
-                                <div class="pd-svc-price">&#8369;<?php echo number_format($service['price'],2); ?></div>
+                                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                    <div class="pd-svc-price">&#8369;<?php echo number_format($service['price'],2); ?></div>
+                                    <?php if ($svcDuration): ?>
+                                    <span style="font-size:11px;color:#6b7280;background:#f3f4f6;padding:2px 8px;border-radius:10px;">
+                                        <i class="fas fa-clock" style="font-size:10px;"></i>
+                                        <?php echo (int)$svcDuration . ' ' . ($durationUnitLabels[$svcDurationUnit] ?? $svcDurationUnit) . ((int)$svcDuration !== 1 ? 's' : ''); ?>
+                                    </span>
+                                    <?php endif; ?>
+                                </div>
                                 <div class="pd-svc-desc"><?php $d = $service['description'] ?? ''; echo htmlspecialchars($d ? mb_strimwidth($d, 0, 70, '…') : 'No description provided.'); ?></div>
+                                <?php if ($svcEquipmentNotes !== ''): ?>
+                                <div style="font-size:11px;color:#6b7280;margin-top:2px;">
+                                    <i class="fas fa-toolbox" style="font-size:10px;margin-right:3px;"></i><?php echo htmlspecialchars(mb_strimwidth($svcEquipmentNotes, 0, 60, '…')); ?>
+                                </div>
+                                <?php endif; ?>
                                 <button class="pd-svc-action"
                                     onclick="openModal('<?php echo htmlspecialchars(addslashes($service['service_name'])); ?>','<?php echo $service['id']; ?>','<?php echo $ps_mode; ?>',<?php echo $ps_pct; ?>,<?php echo $ps_fixed; ?>,<?php echo (float)$service['price']; ?>,<?php echo !empty($service['requires_inspection']) ? 'true' : 'false'; ?>)">
                                     <i class="fas fa-paper-plane"></i> Request Service

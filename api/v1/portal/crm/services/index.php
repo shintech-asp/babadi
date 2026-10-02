@@ -42,7 +42,11 @@ $sql = "SELECT sl.id,
                sl.status,
                sl.is_emergency_available,
                sl.requires_inspection,
+               sl.equipment_notes,
+               sl.duration,
+               sl.duration_unit,
                sl.images,
+               sl.videos,
                sl.created_at,
                sc.id   AS category_id,
                sc.name AS category_name,
@@ -85,6 +89,15 @@ foreach ($rows as &$row) {
     } else {
         $row['images'] = [];
     }
+
+    if (!empty($row['videos'])) {
+        $decoded = json_decode($row['videos'], true);
+        $row['videos'] = is_array($decoded) ? $decoded : [];
+    } else {
+        $row['videos'] = [];
+    }
+
+    $row['duration'] = $row['duration'] !== null ? (int)$row['duration'] : null;
 }
 unset($row);
 

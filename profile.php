@@ -13,8 +13,6 @@ $error = '';
 $success = '';
 $password_error = '';
 $password_success = '';
-$service_error = '';
-$service_success = '';
 $avatar_error = '';
 $avatar_success = '';
 $has_profile_image_column = false;
@@ -169,42 +167,19 @@ if (isProvider()) {
         $stmt->execute();
         $provider_services = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Handle add service
-        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_service'])) {
-            $service_name = sanitize($_POST['service_name']);
-            $description = sanitize($_POST['description']);
-            $price = floatval($_POST['price']);
-            
-            if (empty($service_name) || $price <= 0) {
-                $service_error = "Service name and valid price are required.";
-            } else {
-                $query = "INSERT INTO services (provider_id, service_name, description, price, created_at) 
-                         VALUES (:provider_id, :service_name, :description, :price, NOW())";
-                $stmt = $db->prepare($query);
-                $stmt->bindParam(':provider_id', $provider_id);
-                $stmt->bindParam(':service_name', $service_name);
-                $stmt->bindParam(':description', $description);
-                $stmt->bindParam(':price', $price);
-                
-                if ($stmt->execute()) {
-                    $service_success = "Service added successfully!";
-                    // Refresh services
-                    $stmt = $db->prepare("SELECT id, service_name, description, price, created_at FROM services WHERE provider_id = :provider_id ORDER BY created_at DESC");
-                    $stmt->bindParam(':provider_id', $provider_id);
-                    $stmt->execute();
-                    $provider_services = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    
-                    // Refresh total services count
-                    $stmt = $db->prepare("SELECT COUNT(*) as total FROM services WHERE provider_id = :provider_id");
-                    $stmt->bindParam(':provider_id', $provider_id);
-                    $stmt->execute();
-                    $total_services = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
-                } else {
-                    $service_error = "Failed to add service.";
-                }
-            }
-        }
-        
+        // Add Service used to have its own inline INSERT right here — a
+        // third, independent implementation alongside provider/services.php
+        // and the mobile/CRM API endpoints. It never set `status`, so every
+        // service created from this page defaulted to the DB column's
+        // 'active' default and was instantly bookable — the exact
+        // auto-live bug fixed everywhere else (see CLAUDE.md's Recent Work
+        // Log), still live here because this copy was missed. It also had
+        // none of the specificity fields (category, pricing model,
+        // duration, equipment, photos) the client asked for. Rather than
+        // maintaining a fourth drifting copy of that logic, this page now
+        // links out to the full Add Service form on provider/services.php
+        // instead of re-implementing it.
+
         // Handle delete service
         if (isset($_GET['delete_service'])) {
             $service_id = intval($_GET['delete_service']);
@@ -218,7 +193,89 @@ if (isProvider()) {
                 exit();
             }
         }
-        
+
+        // Portfolio gallery — showcase photos/video of the provider's own
+        // business (distinct from per-service photos added in
+        // provider/services.php). New photos are appended (cap 8 total); a
+        // new video replaces the existing one. Mirrors the upload validation
+        // already used for services (see CLAUDE.md's Recent Work Log).
+        $portfolio_error = '';
+        $portfolio_success = '';
+        if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_portfolio'])) {
+            $existingPortfolioImages = json_decode($provider['portfolio_images'] ?? '[]', true);
+            if (!is_array($existingPortfolioImages)) $existingPortfolioImages = [];
+            $existingPortfolioVideos = json_decode($provider['portfolio_videos'] ?? '[]', true);
+            if (!is_array($existingPortfolioVideos)) $existingPortfolioVideos = [];
+
+            $portfolioUploadDir = 'uploads/portfolio/';
+            $portfolioErrors = [];
+
+            if (!empty($_FILES['portfolio_images']['name'][0] ?? '')) {
+                $imgCount = count($_FILES['portfolio_images']['name']);
+                if (count($existingPortfolioImages) + $imgCount > 8) {
+                    $portfolioErrors[] = 'You can have up to 8 portfolio photos total.';
+                } else {
+                    for ($i = 0; $i < $imgCount; $i++) {
+                        if (($_FILES['portfolio_images']['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
+                        $singleFile = [
+                            'name'     => $_FILES['portfolio_images']['name'][$i],
+                            'type'     => $_FILES['portfolio_images']['type'][$i],
+                            'tmp_name' => $_FILES['portfolio_images']['tmp_name'][$i],
+                            'error'    => $_FILES['portfolio_images']['error'][$i],
+                            'size'     => $_FILES['portfolio_images']['size'][$i],
+                        ];
+                        $up = uploadFile($singleFile, $portfolioUploadDir, ['jpg', 'jpeg', 'png'], 5 * 1024 * 1024);
+                        if ($up['success']) {
+                            $existingPortfolioImages[] = $portfolioUploadDir . $up['filename'];
+                        } else {
+                            $portfolioErrors[] = 'Photo "' . htmlspecialchars($singleFile['name']) . '": ' . implode(' ', $up['errors']);
+                        }
+                    }
+                }
+            }
+
+            if (empty($portfolioErrors) && !empty($_FILES['portfolio_video']['name'] ?? '')) {
+                if (($_FILES['portfolio_video']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $up = uploadFile($_FILES['portfolio_video'], $portfolioUploadDir, ['mp4', 'mov'], 20 * 1024 * 1024);
+                    if ($up['success']) {
+                        $existingPortfolioVideos = [$portfolioUploadDir . $up['filename']];
+                    } else {
+                        $portfolioErrors[] = 'Video: ' . implode(' ', $up['errors']);
+                    }
+                }
+            }
+
+            if (!empty($portfolioErrors)) {
+                $portfolio_error = implode(' ', $portfolioErrors);
+            } else {
+                $pstmt = $db->prepare("UPDATE providers SET portfolio_images = :images, portfolio_videos = :videos, updated_at = NOW() WHERE id = :pid");
+                $pstmt->execute([
+                    ':images' => !empty($existingPortfolioImages) ? json_encode($existingPortfolioImages) : null,
+                    ':videos' => !empty($existingPortfolioVideos) ? json_encode($existingPortfolioVideos) : null,
+                    ':pid'    => $provider_id,
+                ]);
+                $portfolio_success = 'Portfolio updated successfully!';
+                $provider['portfolio_images'] = !empty($existingPortfolioImages) ? json_encode($existingPortfolioImages) : null;
+                $provider['portfolio_videos'] = !empty($existingPortfolioVideos) ? json_encode($existingPortfolioVideos) : null;
+            }
+        }
+
+        // Remove a single portfolio photo by index (video has no per-item
+        // removal since there's only ever one — uploading a new one already
+        // replaces it).
+        if (isset($_GET['remove_portfolio_image']) && ctype_digit((string)$_GET['remove_portfolio_image'])) {
+            $removeIdx = (int)$_GET['remove_portfolio_image'];
+            $currentImages = json_decode($provider['portfolio_images'] ?? '[]', true);
+            if (is_array($currentImages) && isset($currentImages[$removeIdx])) {
+                unset($currentImages[$removeIdx]);
+                $currentImages = array_values($currentImages);
+                $db->prepare("UPDATE providers SET portfolio_images = :images, updated_at = NOW() WHERE id = :pid")
+                   ->execute([':images' => !empty($currentImages) ? json_encode($currentImages) : null, ':pid' => $provider_id]);
+                header("Location: profile.php#portfolio");
+                exit();
+            }
+        }
+
         if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
             $first_name = sanitize($_POST['first_name']);
             $last_name = sanitize($_POST['last_name']);
@@ -991,45 +1048,15 @@ include 'includes/header.php';
                     <div class="card-header">
                         <h2><i class="fas fa-plus-circle"></i> Add New Service</h2>
                     </div>
-                    
-                    <?php if ($service_error): ?>
-                    <div class="alert alert-error">
-                        <i class="fas fa-exclamation-circle"></i>
-                        <?php echo $service_error; ?>
+
+                    <div style="padding:20px;">
+                        <p style="color:var(--text-muted,#666);margin-bottom:16px;">
+                            Add and manage your services — including category, pricing model, duration, equipment used, and photos/video — from the full Services page.
+                        </p>
+                        <a href="<?php echo appUrl('services.php'); ?>" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;">
+                            <i class="fas fa-plus"></i> Add New Service
+                        </a>
                     </div>
-                    <?php endif; ?>
-                    
-                    <?php if ($service_success): ?>
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle"></i>
-                        <?php echo $service_success; ?>
-                    </div>
-                    <?php endif; ?>
-                    
-                    <form method="POST" action="" class="profile-form">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label><i class="fas fa-briefcase"></i> Service Name *</label>
-                                <input type="text" name="service_name" required class="form-control" placeholder="e.g., Cockroach Extermination">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label><i class="fas fa-peso-sign"></i> Price (₱) *</label>
-                                <input type="number" name="price" required step="0.01" min="0" class="form-control" placeholder="0.00">
-                            </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label><i class="fas fa-align-left"></i> Description</label>
-                            <textarea name="description" rows="4" class="form-control" placeholder="Describe your service..."></textarea>
-                        </div>
-                        
-                        <div class="form-actions">
-                            <button type="submit" name="add_service" class="btn-primary">
-                                <i class="fas fa-plus"></i> Add Service
-                            </button>
-                        </div>
-                    </form>
                 </div>
                 
                 <div class="card">
@@ -1186,9 +1213,68 @@ include 'includes/header.php';
                             </button>
                         </div>
                     </form>
+
+                    <?php if (isProvider() && $provider): ?>
+                    <div id="portfolio" class="card" style="margin-top:20px;">
+                        <div class="card-header">
+                            <h2><i class="fas fa-images"></i> Portfolio Gallery</h2>
+                        </div>
+                        <div style="padding:20px;">
+                            <p style="color:var(--text-muted,#666);margin-bottom:16px;">
+                                Showcase photos and a video of your team's work — shown on your public profile so seekers can see what you actually do.
+                            </p>
+
+                            <?php if ($portfolio_error): ?>
+                            <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($portfolio_error); ?></div>
+                            <?php endif; ?>
+                            <?php if ($portfolio_success): ?>
+                            <div class="alert alert-success"><i class="fas fa-check-circle"></i> <?php echo htmlspecialchars($portfolio_success); ?></div>
+                            <?php endif; ?>
+
+                            <?php
+                                $currentPortfolioImages = json_decode($provider['portfolio_images'] ?? '[]', true) ?: [];
+                                $currentPortfolioVideos = json_decode($provider['portfolio_videos'] ?? '[]', true) ?: [];
+                            ?>
+                            <?php if (!empty($currentPortfolioImages)): ?>
+                            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+                                <?php foreach ($currentPortfolioImages as $pidx => $pimg): ?>
+                                <div style="position:relative;width:90px;height:90px;">
+                                    <img src="<?php echo htmlspecialchars(siteUrl($pimg)); ?>" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;">
+                                    <a href="profile.php?remove_portfolio_image=<?php echo (int)$pidx; ?>#portfolio" onclick="return confirm('Remove this photo?');" style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;text-decoration:none;">
+                                        <i class="fas fa-times"></i>
+                                    </a>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if (!empty($currentPortfolioVideos)): ?>
+                            <video src="<?php echo htmlspecialchars(siteUrl($currentPortfolioVideos[0])); ?>" controls style="max-width:320px;max-height:220px;border-radius:8px;margin-bottom:16px;display:block;"></video>
+                            <?php endif; ?>
+
+                            <form method="POST" action="profile.php#portfolio" enctype="multipart/form-data">
+                                <div class="form-group">
+                                    <label><i class="fas fa-camera"></i> Add Photos</label>
+                                    <input type="file" name="portfolio_images[]" class="form-control" accept="image/jpeg,image/png" multiple>
+                                    <small class="form-hint">Up to 8 photos total (JPG/PNG, 5MB each).</small>
+                                </div>
+                                <div class="form-group">
+                                    <label><i class="fas fa-video"></i> <?php echo !empty($currentPortfolioVideos) ? 'Replace Video' : 'Add Video (optional)'; ?></label>
+                                    <input type="file" name="portfolio_video" class="form-control" accept="video/mp4,video/quicktime">
+                                    <small class="form-hint">MP4/MOV, 20MB max.</small>
+                                </div>
+                                <div class="form-actions">
+                                    <button type="submit" name="upload_portfolio" class="btn-primary">
+                                        <i class="fas fa-upload"></i> Save Portfolio
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
-            
+
             <!-- Password Change Tab -->
             <div id="password-section" class="tab-content">
                 <div class="card">

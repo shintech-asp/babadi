@@ -16,6 +16,8 @@ $stmt = $pdo->prepare("
         p.user_id,
         p.company_name,
         p.logo_url,
+        p.portfolio_images,
+        p.portfolio_videos,
         p.status,
         p.service_radius,
         p.description,
@@ -44,6 +46,8 @@ if (!$provider) {
     fail('Provider not found', 404);
 }
 
+$provider['portfolio_images'] = json_decode($provider['portfolio_images'] ?? '[]', true) ?: [];
+$provider['portfolio_videos'] = json_decode($provider['portfolio_videos'] ?? '[]', true) ?: [];
 $provider['avg_rating'] = round((float)$provider['avg_rating'], 2);
 $provider['review_count'] = (int)$provider['review_count'];
 $provider['service_count'] = (int)$provider['service_count'];

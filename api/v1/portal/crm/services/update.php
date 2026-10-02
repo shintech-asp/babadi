@@ -69,6 +69,32 @@ if ($is_emergency !== null) {
     $params[':is_emergency'] = $is_emergency ? 1 : 0;
 }
 
+$equipment_notes = inp('equipment_notes');
+if ($equipment_notes !== null) {
+    $fields[] = 'equipment_notes = :equipment_notes';
+    $params[':equipment_notes'] = trim($equipment_notes) !== '' ? trim($equipment_notes) : null;
+}
+
+$duration = inp('duration');
+if ($duration !== null) {
+    $duration = trim((string)$duration);
+    if ($duration === '' || !ctype_digit($duration) || (int)$duration <= 0) {
+        fail('A valid duration is required.');
+    }
+    $fields[] = 'duration = :duration';
+    $params[':duration'] = (int)$duration;
+}
+
+$duration_unit = inp('duration_unit');
+if ($duration_unit !== null) {
+    $duration_unit = trim($duration_unit);
+    if (!in_array($duration_unit, ['minute', 'hour', 'day'], true)) {
+        fail('duration_unit must be minute, hour, or day.');
+    }
+    $fields[] = 'duration_unit = :duration_unit';
+    $params[':duration_unit'] = $duration_unit;
+}
+
 // Non-fixed pricing can't be charged upfront — force requires_inspection on
 // regardless of what was posted, using whichever pricing_type is in effect
 // after this update (the new value if provided, else the listing's current

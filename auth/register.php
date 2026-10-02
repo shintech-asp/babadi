@@ -46,56 +46,7 @@ function validatePassword($password) {
     return true;
 }
 
-function getCavitePolygon() {
-    return [
-        [14.0534, 120.5648],
-        [14.1022, 120.6246],
-        [14.1375, 120.6842],
-        [14.1718, 120.7374],
-        [14.2205, 120.7588],
-        [14.2769, 120.7861],
-        [14.3369, 120.8190],
-        [14.4002, 120.8587],
-        [14.4458, 120.9198],
-        [14.4799, 120.9643],
-        [14.5080, 121.0142],
-        [14.4874, 121.0719],
-        [14.4409, 121.0740],
-        [14.3838, 121.0583],
-        [14.3232, 121.0329],
-        [14.2728, 121.0092],
-        [14.2219, 120.9837],
-        [14.1718, 120.9598],
-        [14.1299, 120.9361],
-        [14.0922, 120.9063],
-        [14.0736, 120.8616],
-        [14.0598, 120.7992],
-        [14.0517, 120.7308],
-        [14.0470, 120.6540],
-        [14.0534, 120.5648]
-    ];
-}
-
-function isInsidePolygon($lat, $lng, $polygon) {
-    $inside = false;
-    $j = count($polygon) - 1;
-
-    for ($i = 0; $i < count($polygon); $j = $i++) {
-        $yi = (float)$polygon[$i][0];
-        $xi = (float)$polygon[$i][1];
-        $yj = (float)$polygon[$j][0];
-        $xj = (float)$polygon[$j][1];
-
-        $intersects = (($yi > $lat) !== ($yj > $lat))
-            && ($lng < (($xj - $xi) * ($lat - $yi)) / ($yj - $yi) + $xi);
-
-        if ($intersects) {
-            $inside = !$inside;
-        }
-    }
-
-    return $inside;
-}
+require_once __DIR__ . '/../includes/geo_helper.php';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $database = new Database();
@@ -107,11 +58,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $user_type = sanitize($_POST['user_type']);
     $first_name = sanitize($_POST['first_name']);
     $last_name = sanitize($_POST['last_name']);
+    $suffix = sanitize($_POST['suffix'] ?? '');
     $phone = sanitize($_POST['phone']);
     
     // Validate all required fields
+    //
+    // Phone had no server-side format/length check at all before — the
+    // HTML5 maxlength/pattern attributes on the input are a UX nicety only
+    // and never a real guarantee (easy to bypass with a direct POST), so
+    // this is the actual enforcement: PH mobile numbers are 11 digits
+    // starting with 09.
     if (empty($first_name) || empty($last_name) || empty($email) || empty($password) || empty($confirm_password) || empty($phone)) {
         $error = "All fields marked with * are required!";
+    } elseif (!preg_match('/^09\d{9}$/', $phone)) {
+        $error = "Please enter a valid 11-digit mobile number starting with 09 (e.g. 09171234567)!";
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = "Please enter a valid email address!";
     } elseif ($password !== $confirm_password) {
@@ -132,13 +92,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             } else {
                 // Insert user
                 $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-                $query = "INSERT INTO users (email, password, user_type, first_name, last_name, phone, status, created_at) VALUES (:email, :password, :user_type, :first_name, :last_name, :phone, 'active', NOW())";
+                $query = "INSERT INTO users (email, password, user_type, first_name, last_name, suffix, phone, status, created_at) VALUES (:email, :password, :user_type, :first_name, :last_name, :suffix, :phone, 'active', NOW())";
                 $stmt = $db->prepare($query);
                 $stmt->bindParam(':email', $email);
                 $stmt->bindParam(':password', $hashed_password);
                 $stmt->bindParam(':user_type', $user_type);
                 $stmt->bindParam(':first_name', $first_name);
                 $stmt->bindParam(':last_name', $last_name);
+                $stmt->bindValue(':suffix', $suffix !== '' ? $suffix : null);
                 $stmt->bindParam(':phone', $phone);
                 
                 if ($stmt->execute()) {
@@ -164,7 +125,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         } elseif ($geo_in_cavite !== 1 || !$server_in_cavite || $geo_latitude === null || $geo_longitude === null) {
                             $error = "Provider registration is only allowed within Cavite. Please use geolocation and make sure you are in range.";
                         } else {
-                            $query = "INSERT INTO providers (user_id, company_name, address, city, state, description, latitude, longitude, office_lat, office_lng, created_at) VALUES (:user_id, :company_name, :address, :city, :state, :description, :lat, :lng, :lat, :lng, NOW())";
+                            // status/verification_status were never set here before —
+                            // providers.status DEFAULTs to 'active' and
+                            // verification_status DEFAULTs to NULL, and both
+                            // admin/providers.php and admin/verify-providers.php
+                            // derive "approved" directly from that default. Net
+                            // effect: every new provider registration was
+                            // immediately shown as approved/active to admins and
+                            // (via browse/listings.php etc., which only filter on
+                            // providers being found at all, not on this status)
+                            // potentially live to seekers — before OTP verification,
+                            // before business documents, before any admin review.
+                            // Explicitly starting at 'pending' restores the
+                            // intended review gate; provider-setup.php's own
+                            // status-transition logic already assumes this.
+                            $query = "INSERT INTO providers (user_id, company_name, address, city, state, description, latitude, longitude, office_lat, office_lng, status, verification_status, created_at) VALUES (:user_id, :company_name, :address, :city, :state, :description, :lat, :lng, :lat, :lng, 'pending', 'pending', NOW())";
                             $stmt = $db->prepare($query);
                             $stmt->bindParam(':user_id', $user_id);
                             $stmt->bindParam(':company_name', $company_name);
@@ -1137,7 +1112,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                    placeholder="Enter your last name"
                                    value="<?php echo isset($_POST['last_name']) ? htmlspecialchars($_POST['last_name']) : ''; ?>">
                         </div>
-                        
+
+                        <div class="form-group">
+                            <label>Suffix (optional):</label>
+                            <input type="text" name="suffix" class="form-control" maxlength="10"
+                                   placeholder="e.g. Jr., Sr., III"
+                                   value="<?php echo isset($_POST['suffix']) ? htmlspecialchars($_POST['suffix']) : ''; ?>">
+                        </div>
+
                         <div class="form-group">
                             <label>Email: *</label>
                             <input type="email" name="email" required class="form-control"
@@ -1148,7 +1130,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <div class="form-group">
                             <label>Phone: *</label>
                             <input type="text" name="phone" required class="form-control"
-                                   placeholder="Enter your phone number"
+                                   placeholder="09XXXXXXXXX"
+                                   inputmode="numeric" maxlength="11"
+                                   pattern="09[0-9]{9}"
+                                   title="Enter an 11-digit mobile number starting with 09, e.g. 09171234567"
+                                   oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 11);"
                                    value="<?php echo isset($_POST['phone']) ? htmlspecialchars($_POST['phone']) : ''; ?>">
                         </div>
                         

@@ -146,7 +146,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_service'])) {
     $price             = trim($_POST['price'] ?? '');
     $category_id       = (int)($_POST['category_id'] ?? 0);
     $pricing_type      = trim($_POST['pricing_type'] ?? '');
-    $status            = trim($_POST['status'] ?? 'active');
+    // Was read here but never actually used anywhere below — the Status
+    // dropdown in the Add Service form was pure decoration, every new
+    // service landed on the DB column default ('active') regardless of
+    // what was picked, so a service with an incomplete description/price/
+    // etc. was instantly bookable by customers the moment it was saved.
+    $status            = trim($_POST['status'] ?? 'inactive');
+    if (!in_array($status, ['active', 'inactive'], true)) {
+        $status = 'inactive';
+    }
     $eco_friendly      = isset($_POST['eco_friendly']) ? 1 : 0;
     $emergency         = isset($_POST['emergency']) ? 1 : 0;
     if (!in_array($pricing_type, ['fixed', 'custom'], true)) {
@@ -160,6 +168,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_service'])) {
     $pesticide_brand   = trim($_POST['pesticide_brand'] ?? '');
     $pesticide_type    = trim($_POST['pesticide_type'] ?? '');
     $pesticide_notes   = trim($_POST['pesticide_notes'] ?? '');
+    $equipment_notes   = trim($_POST['equipment_notes'] ?? '');
+    $duration          = trim($_POST['duration'] ?? '');
+    $duration_unit     = trim($_POST['duration_unit'] ?? 'hour');
+    if (!in_array($duration_unit, ['minute', 'hour', 'day'], true)) {
+        $duration_unit = 'hour';
+    }
     $assigned_staff_id = (int)($_POST['assigned_staff_id'] ?? 0);
     // Never trust the posted staff id directly — only accept it if it's
     // actually one of this provider's eligible field technicians.
@@ -178,6 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_service'])) {
     if ($service_name === '')                               { $errors[] = 'Service name is required.'; }
     if ($price === '' || !is_numeric($price) || $price < 0) { $errors[] = 'Valid price is required.'; }
     if ($category_id <= 0 || !in_array($category_id, $validCategoryIds, true)) { $errors[] = 'Category is required.'; }
+    if ($duration === '' || !ctype_digit($duration) || (int)$duration <= 0) { $errors[] = 'A valid duration is required.'; }
 
     // Contract / signature
     $contract_text      = trim($_POST['contract_text'] ?? '');
@@ -185,20 +200,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_service'])) {
 
     if ($contract_signature === '') { $errors[] = 'Please sign the service contract before publishing.'; }
 
+    // Photos/video — optional. Mirrors the validation already used by the
+    // mobile provider app's listings/store.php (jpg/png, 5MB cap for images;
+    // mp4/mov, 20MB cap for video) so a service created on the web isn't
+    // held to a looser standard than one created from the app.
+    $uploadedImagePaths = [];
+    $uploadedVideoPaths = [];
+    if (empty($errors)) {
+        $serviceUploadDir = 'uploads/services/';
+        if (!empty($_FILES['images']['name'][0] ?? '')) {
+            $imgCount = count($_FILES['images']['name']);
+            if ($imgCount > 5) {
+                $errors[] = 'You can upload up to 5 photos.';
+            } else {
+                for ($i = 0; $i < $imgCount; $i++) {
+                    if (($_FILES['images']['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
+                    $singleFile = [
+                        'name'     => $_FILES['images']['name'][$i],
+                        'type'     => $_FILES['images']['type'][$i],
+                        'tmp_name' => $_FILES['images']['tmp_name'][$i],
+                        'error'    => $_FILES['images']['error'][$i],
+                        'size'     => $_FILES['images']['size'][$i],
+                    ];
+                    $up = uploadFile($singleFile, $serviceUploadDir, ['jpg', 'jpeg', 'png'], 5 * 1024 * 1024);
+                    if ($up['success']) {
+                        $uploadedImagePaths[] = $serviceUploadDir . $up['filename'];
+                    } else {
+                        $errors[] = 'Photo "' . htmlspecialchars($singleFile['name']) . '": ' . implode(' ', $up['errors']);
+                    }
+                }
+            }
+        }
+        if (empty($errors) && !empty($_FILES['videos']['name'][0] ?? '')) {
+            if (($_FILES['videos']['error'][0] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $singleFile = [
+                    'name'     => $_FILES['videos']['name'][0],
+                    'type'     => $_FILES['videos']['type'][0],
+                    'tmp_name' => $_FILES['videos']['tmp_name'][0],
+                    'error'    => $_FILES['videos']['error'][0],
+                    'size'     => $_FILES['videos']['size'][0],
+                ];
+                $up = uploadFile($singleFile, $serviceUploadDir, ['mp4', 'mov'], 20 * 1024 * 1024);
+                if ($up['success']) {
+                    $uploadedVideoPaths[] = $serviceUploadDir . $up['filename'];
+                } else {
+                    $errors[] = 'Video: ' . implode(' ', $up['errors']);
+                }
+            }
+        }
+    }
+
     if (empty($errors)) {
         try {
-            $stmtIns = $db->prepare("INSERT INTO services (provider_id, service_name, description, price, category_id, pricing_type, requires_inspection, pesticide_name, pesticide_brand, pesticide_type, pesticide_notes, contract_text, contract_signature, contract_signed_at, assigned_staff_id, created_at) VALUES (:provider_id, :service_name, :description, :price, :category_id, :pricing_type, :requires_inspection, :pesticide_name, :pesticide_brand, :pesticide_type, :pesticide_notes, :contract_text, :contract_signature, NOW(), :assigned_staff_id, NOW())");
+            $images_json = !empty($uploadedImagePaths) ? json_encode($uploadedImagePaths) : null;
+            $videos_json = !empty($uploadedVideoPaths) ? json_encode($uploadedVideoPaths) : null;
+            $stmtIns = $db->prepare("INSERT INTO services (provider_id, service_name, description, price, category_id, pricing_type, status, requires_inspection, pesticide_name, pesticide_brand, pesticide_type, pesticide_notes, equipment_notes, duration, duration_unit, images, videos, contract_text, contract_signature, contract_signed_at, assigned_staff_id, created_at) VALUES (:provider_id, :service_name, :description, :price, :category_id, :pricing_type, :status, :requires_inspection, :pesticide_name, :pesticide_brand, :pesticide_type, :pesticide_notes, :equipment_notes, :duration, :duration_unit, :images, :videos, :contract_text, :contract_signature, NOW(), :assigned_staff_id, NOW())");
             $stmtIns->bindParam(':provider_id',         $provider_id, PDO::PARAM_INT);
             $stmtIns->bindParam(':service_name',        $service_name);
             $stmtIns->bindParam(':description',         $description);
             $stmtIns->bindParam(':price',               $price);
             $stmtIns->bindParam(':category_id',         $category_id, PDO::PARAM_INT);
             $stmtIns->bindParam(':pricing_type',        $pricing_type);
+            $stmtIns->bindParam(':status',               $status);
             $stmtIns->bindParam(':requires_inspection', $requires_inspection, PDO::PARAM_INT);
             $stmtIns->bindParam(':pesticide_name',      $pesticide_name);
             $stmtIns->bindParam(':pesticide_brand',     $pesticide_brand);
             $stmtIns->bindParam(':pesticide_type',      $pesticide_type);
             $stmtIns->bindParam(':pesticide_notes',     $pesticide_notes);
+            $stmtIns->bindParam(':equipment_notes',     $equipment_notes);
+            $stmtIns->bindParam(':duration',            $duration, PDO::PARAM_INT);
+            $stmtIns->bindParam(':duration_unit',       $duration_unit);
+            $stmtIns->bindParam(':images',              $images_json);
+            $stmtIns->bindParam(':videos',              $videos_json);
             $stmtIns->bindParam(':contract_text',       $contract_text);
             $stmtIns->bindParam(':contract_signature',  $contract_signature);
             if ($assigned_staff_id > 0) {
@@ -256,6 +329,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_service'])) {
     $e_pest_brand      = trim($_POST['edit_pesticide_brand'] ?? '');
     $e_pest_type       = trim($_POST['edit_pesticide_type'] ?? '');
     $e_pest_notes      = trim($_POST['edit_pesticide_notes'] ?? '');
+    $e_equipment_notes = trim($_POST['edit_equipment_notes'] ?? '');
+    $e_duration        = trim($_POST['edit_duration'] ?? '');
+    $e_duration_unit   = trim($_POST['edit_duration_unit'] ?? 'hour');
+    if (!in_array($e_duration_unit, ['minute', 'hour', 'day'], true)) {
+        $e_duration_unit = 'hour';
+    }
     if (!in_array($e_pricing_type, ['fixed', 'custom'], true)) {
         $e_pricing_type = 'fixed';
     }
@@ -276,6 +355,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_service'])) {
     if ($e_name === '')                                { $e_errors[] = 'Service name is required.'; }
     if ($e_price === '' || !is_numeric($e_price) || $e_price < 0) { $e_errors[] = 'Valid price is required.'; }
     if ($e_category_id <= 0 || !in_array($e_category_id, $validCategoryIds, true)) { $e_errors[] = 'Category is required.'; }
+    if ($e_duration === '' || !ctype_digit($e_duration) || (int)$e_duration <= 0) { $e_errors[] = 'A valid duration is required.'; }
     if ($edit_id <= 0)                                 { $e_errors[] = 'Invalid service.'; }
 
     if (empty($e_errors)) {
@@ -285,15 +365,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_service'])) {
         // fields would report 0 even for a legitimate service), and without
         // this check the equipment DELETE below would run unconditionally
         // regardless of whether edit_id even belongs to this provider.
-        $ownerCheckStmt = $db->prepare("SELECT id FROM services WHERE id=:id AND provider_id=:pid");
+        $ownerCheckStmt = $db->prepare("SELECT id, images, videos FROM services WHERE id=:id AND provider_id=:pid");
         $ownerCheckStmt->execute([':id' => $edit_id, ':pid' => $provider_id]);
-        $ownsService = (bool)$ownerCheckStmt->fetch(PDO::FETCH_ASSOC);
+        $existingServiceRow = $ownerCheckStmt->fetch(PDO::FETCH_ASSOC);
+        $ownsService = (bool)$existingServiceRow;
 
         if (!$ownsService) {
             $edit_error = 'Service not found.';
         } else {
+        // New photos are appended to the existing set (cap 5 total); a new
+        // video replaces the existing one. Same validation as add_service.
+        $e_existingImages = [];
+        if (!empty($existingServiceRow['images'])) {
+            $decoded = json_decode($existingServiceRow['images'], true);
+            if (is_array($decoded)) $e_existingImages = $decoded;
+        }
+        $e_existingVideos = [];
+        if (!empty($existingServiceRow['videos'])) {
+            $decoded = json_decode($existingServiceRow['videos'], true);
+            if (is_array($decoded)) $e_existingVideos = $decoded;
+        }
+        $e_serviceUploadDir = 'uploads/services/';
+
+        if (!empty($_FILES['images']['name'][0] ?? '')) {
+            $e_imgCount = count($_FILES['images']['name']);
+            if (count($e_existingImages) + $e_imgCount > 5) {
+                $e_errors[] = 'You can have up to 5 photos total.';
+            } else {
+                for ($i = 0; $i < $e_imgCount; $i++) {
+                    if (($_FILES['images']['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
+                    $singleFile = [
+                        'name'     => $_FILES['images']['name'][$i],
+                        'type'     => $_FILES['images']['type'][$i],
+                        'tmp_name' => $_FILES['images']['tmp_name'][$i],
+                        'error'    => $_FILES['images']['error'][$i],
+                        'size'     => $_FILES['images']['size'][$i],
+                    ];
+                    $up = uploadFile($singleFile, $e_serviceUploadDir, ['jpg', 'jpeg', 'png'], 5 * 1024 * 1024);
+                    if ($up['success']) {
+                        $e_existingImages[] = $e_serviceUploadDir . $up['filename'];
+                    } else {
+                        $e_errors[] = 'Photo "' . htmlspecialchars($singleFile['name']) . '": ' . implode(' ', $up['errors']);
+                    }
+                }
+            }
+        }
+        if (empty($e_errors) && !empty($_FILES['videos']['name'][0] ?? '')) {
+            if (($_FILES['videos']['error'][0] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $singleFile = [
+                    'name'     => $_FILES['videos']['name'][0],
+                    'type'     => $_FILES['videos']['type'][0],
+                    'tmp_name' => $_FILES['videos']['tmp_name'][0],
+                    'error'    => $_FILES['videos']['error'][0],
+                    'size'     => $_FILES['videos']['size'][0],
+                ];
+                $up = uploadFile($singleFile, $e_serviceUploadDir, ['mp4', 'mov'], 20 * 1024 * 1024);
+                if ($up['success']) {
+                    $e_existingVideos = [$e_serviceUploadDir . $up['filename']];
+                } else {
+                    $e_errors[] = 'Video: ' . implode(' ', $up['errors']);
+                }
+            }
+        }
+        }
+
+        if (!empty($e_errors)) {
+            $edit_error = implode(' ', $e_errors);
+        } elseif ($ownsService) {
         try {
-            $stmtEdit = $db->prepare("UPDATE services SET service_name=:name, description=:desc, price=:price, category_id=:category_id, pricing_type=:pricing_type, requires_inspection=:requires_inspection, pesticide_name=:pname, pesticide_brand=:pbrand, pesticide_type=:ptype, pesticide_notes=:pnotes, assigned_staff_id=:assigned_staff_id, updated_at=NOW() WHERE id=:id AND provider_id=:pid");
+            $e_images_json = !empty($e_existingImages) ? json_encode($e_existingImages) : null;
+            $e_videos_json = !empty($e_existingVideos) ? json_encode($e_existingVideos) : null;
+            $stmtEdit = $db->prepare("UPDATE services SET service_name=:name, description=:desc, price=:price, category_id=:category_id, pricing_type=:pricing_type, requires_inspection=:requires_inspection, pesticide_name=:pname, pesticide_brand=:pbrand, pesticide_type=:ptype, pesticide_notes=:pnotes, equipment_notes=:eqnotes, duration=:duration, duration_unit=:duration_unit, images=:images, videos=:videos, assigned_staff_id=:assigned_staff_id, updated_at=NOW() WHERE id=:id AND provider_id=:pid");
             $stmtEdit->bindParam(':name',   $e_name);
             $stmtEdit->bindParam(':desc',   $e_desc);
             $stmtEdit->bindParam(':price',  $e_price);
@@ -304,6 +446,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_service'])) {
             $stmtEdit->bindParam(':pbrand', $e_pest_brand);
             $stmtEdit->bindParam(':ptype',  $e_pest_type);
             $stmtEdit->bindParam(':pnotes', $e_pest_notes);
+            $stmtEdit->bindParam(':eqnotes', $e_equipment_notes);
+            $stmtEdit->bindParam(':duration', $e_duration, PDO::PARAM_INT);
+            $stmtEdit->bindParam(':duration_unit', $e_duration_unit);
+            $stmtEdit->bindParam(':images', $e_images_json);
+            $stmtEdit->bindParam(':videos', $e_videos_json);
             if ($e_assigned_staff_id > 0) {
                 $stmtEdit->bindParam(':assigned_staff_id', $e_assigned_staff_id, PDO::PARAM_INT);
             } else {
@@ -416,7 +563,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_payment'])) {
 }
 
 $providerUserIdForServiceLock = (int)($provider['user_id'] ?? 0);
-$stmt = $db->prepare('SELECT s.id, s.service_name, s.description, s.price, s.category_id, sc.name AS category_name, s.pricing_type, s.requires_inspection, s.duration, s.status, s.created_at, s.payment_settings, s.pesticide_name, s.pesticide_brand, s.pesticide_type, s.pesticide_notes, s.contract_text, s.contract_signature, s.contract_signed_at, s.assigned_staff_id
+$stmt = $db->prepare('SELECT s.id, s.service_name, s.description, s.price, s.category_id, sc.name AS category_name, s.pricing_type, s.requires_inspection, s.duration, s.duration_unit, s.equipment_notes, s.images, s.videos, s.status, s.created_at, s.payment_settings, s.pesticide_name, s.pesticide_brand, s.pesticide_type, s.pesticide_notes, s.contract_text, s.contract_signature, s.contract_signed_at, s.assigned_staff_id
     FROM services s LEFT JOIN service_categories sc ON sc.id = s.category_id
     WHERE s.provider_id = :pid AND s.deleted_at IS NULL ORDER BY s.created_at DESC');
 $stmt->bindParam(':pid', $provider_id, PDO::PARAM_INT);
@@ -1126,6 +1273,16 @@ $show_first_time_guide = count($services) === 0;
                                         data-name="<?php echo htmlspecialchars($s['service_name'], ENT_QUOTES); ?>"
                                         data-price="<?php echo number_format((float)$s['price'], 2); ?>"
                                         data-duration="<?php echo htmlspecialchars($s['duration'] ?? '�', ENT_QUOTES); ?>"
+                                        data-duration-unit="<?php echo htmlspecialchars($s['duration_unit'] ?? 'hour', ENT_QUOTES); ?>"
+                                        data-equipment-notes="<?php echo htmlspecialchars($s['equipment_notes'] ?? '', ENT_QUOTES); ?>"
+                                        data-images="<?php
+                                            $sImgPaths = json_decode($s['images'] ?? '[]', true) ?: [];
+                                            echo htmlspecialchars(json_encode(array_map('siteUrl', $sImgPaths)), ENT_QUOTES);
+                                        ?>"
+                                        data-videos="<?php
+                                            $sVidPaths = json_decode($s['videos'] ?? '[]', true) ?: [];
+                                            echo htmlspecialchars(json_encode(array_map('siteUrl', $sVidPaths)), ENT_QUOTES);
+                                        ?>"
                                         data-desc="<?php echo htmlspecialchars($s['description'] ?? '', ENT_QUOTES); ?>"
                                         data-created="<?php echo date('F d, Y', strtotime($s['created_at'])); ?>"
                                         data-id="<?php echo (int)$s['id']; ?>"
@@ -1142,6 +1299,8 @@ $show_first_time_guide = count($services) === 0;
                                         data-name="<?php echo htmlspecialchars($s['service_name'], ENT_QUOTES); ?>"
                                         data-price="<?php echo number_format((float)$s['price'], 2); ?>"
                                         data-duration="<?php echo htmlspecialchars($s['duration'] ?? '', ENT_QUOTES); ?>"
+                                        data-duration-unit="<?php echo htmlspecialchars($s['duration_unit'] ?? 'hour', ENT_QUOTES); ?>"
+                                        data-equipment-notes="<?php echo htmlspecialchars($s['equipment_notes'] ?? '', ENT_QUOTES); ?>"
                                         data-desc="<?php echo htmlspecialchars($s['description'] ?? '', ENT_QUOTES); ?>"
                                         data-pest-name="<?php echo htmlspecialchars($s['pesticide_name'] ?? '', ENT_QUOTES); ?>"
                                         data-pest-brand="<?php echo htmlspecialchars($s['pesticide_brand'] ?? '', ENT_QUOTES); ?>"
@@ -1216,6 +1375,17 @@ $show_first_time_guide = count($services) === 0;
             <div class="view-section">
                 <div class="view-label">Description</div>
                 <div class="view-value muted" id="view-desc">�</div>
+            </div>
+
+            <div class="view-section" id="view-equipment-notes-wrap" style="display:none;">
+                <div class="view-label">Equipment &amp; Tools Used</div>
+                <div class="view-value muted" id="view-equipment-notes">�</div>
+            </div>
+
+            <div class="view-section" id="view-media-wrap" style="display:none;">
+                <div class="view-label">Photos &amp; Video</div>
+                <div id="view-media-images" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>
+                <div id="view-media-video" style="margin-top:8px;"></div>
             </div>
 
             <!-- Pesticide view block -->
@@ -1407,6 +1577,43 @@ $show_first_time_guide = count($services) === 0;
                         </div>
                         <?php endif; ?>
                     </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">How Long Does It Take? *</label>
+                            <div style="display:flex;gap:8px;">
+                                <input type="number" name="duration" id="add_duration" class="form-control" min="1" step="1" required placeholder="e.g. 2" style="flex:1;">
+                                <select name="duration_unit" id="add_duration_unit" class="form-control" style="flex:1;">
+                                    <option value="minute">Minutes</option>
+                                    <option value="hour" selected>Hours</option>
+                                    <option value="day">Days</option>
+                                </select>
+                            </div>
+                            <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                                Lets customers know if this is a same-day job or a multi-day service.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Equipment &amp; Tools Used</label>
+                        <textarea name="equipment_notes" id="add_equipment_notes" class="form-control" style="min-height:60px;" placeholder="e.g., Sprayer, fogger, bait stations, termite detection device" maxlength="500"></textarea>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            Shown to customers on the service listing so they know what to expect.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Photos</label>
+                        <input type="file" name="images[]" id="add_images" class="form-control" accept="image/jpeg,image/png" multiple>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            Up to 5 photos (JPG/PNG, 5MB each). Shown on your public listing.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Video (optional)</label>
+                        <input type="file" name="videos[]" id="add_videos" class="form-control" accept="video/mp4,video/quicktime">
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            One short video of the service in action (MP4/MOV, 20MB max).
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label class="form-label">Description</label>
                         <textarea name="description" id="add_description" class="form-control" placeholder="Describe your service � what's included, coverage area, special features, etc."></textarea>
@@ -1449,9 +1656,10 @@ $show_first_time_guide = count($services) === 0;
                     <div class="form-group">
                         <label class="form-label">Status</label>
                         <select name="status" class="form-control">
-                            <option value="active">Active � Visible to customers</option>
-                            <option value="inactive">Inactive � Hidden from customers</option>
+                            <option value="inactive" selected>Draft — Hidden from customers until you publish it</option>
+                            <option value="active">Active — Visible to customers now</option>
                         </select>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">New services start as a draft so customers can't book something that's still missing details. Switch to Active here, or from the service list later, once it's ready.</div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Additional Features</label>
@@ -1623,7 +1831,7 @@ $show_first_time_guide = count($services) === 0;
 
             <!-- Tab: Edit Service -->
             <div class="tab-panel active-panel" id="edit-panel">
-                <form method="POST" action="<?php echo appUrl('services.php'); ?>" id="editServiceForm">
+                <form method="POST" action="<?php echo appUrl('services.php'); ?>" id="editServiceForm" enctype="multipart/form-data">
                     <input type="hidden" name="edit_service" value="1">
                     <input type="hidden" name="edit_id" id="edit_id" value="">
                     <div class="form-group">
@@ -1700,6 +1908,40 @@ $show_first_time_guide = count($services) === 0;
                             <?php endforeach; ?>
                         </div>
                         <?php endif; ?>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">How Long Does It Take? *</label>
+                            <div style="display:flex;gap:8px;">
+                                <input type="number" name="edit_duration" id="edit_duration" class="form-control" min="1" step="1" required style="flex:1;">
+                                <select name="edit_duration_unit" id="edit_duration_unit" class="form-control" style="flex:1;">
+                                    <option value="minute">Minutes</option>
+                                    <option value="hour">Hours</option>
+                                    <option value="day">Days</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Equipment &amp; Tools Used</label>
+                        <textarea name="edit_equipment_notes" id="edit_equipment_notes" class="form-control" style="min-height:60px;" maxlength="500"></textarea>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            Shown to customers on the service listing.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Add More Photos</label>
+                        <input type="file" name="images[]" id="edit_images" class="form-control" accept="image/jpeg,image/png" multiple>
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="edit_images_count">
+                            Up to 5 total photos (JPG/PNG, 5MB each). New photos are added to the existing ones.
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Replace Video</label>
+                        <input type="file" name="videos[]" id="edit_videos" class="form-control" accept="video/mp4,video/quicktime">
+                        <div class="form-hint" style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                            MP4/MOV, 20MB max. Uploading a new one replaces the current video.
+                        </div>
                     </div>
 
                     <!-- ── Pesticide Section (Edit) ── -->
@@ -2680,6 +2922,7 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
         const form = document.getElementById('addServiceForm');
         form.method = 'POST';
         form.action = 'services.php';
+        form.enctype = 'multipart/form-data';
         form.submit();
     }
 
@@ -2796,10 +3039,35 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
             activeViewServiceId = parseInt(this.dataset.id || '0', 10);
             document.getElementById('view-name').textContent     = this.dataset.name     || '�';
             document.getElementById('view-price').textContent    = '\u20B1' + (this.dataset.price || '0.00');
-            document.getElementById('view-duration').textContent = this.dataset.duration  || '�';
+            const durationUnitLabels = { minute: 'min', hour: 'hr', day: 'day' };
+            const durationVal = this.dataset.duration || '';
+            const durationUnit = this.dataset.durationUnit || 'hour';
+            document.getElementById('view-duration').textContent = durationVal
+                ? (durationVal + ' ' + (durationUnitLabels[durationUnit] || durationUnit) + (durationVal !== '1' ? 's' : ''))
+                : '�';
             document.getElementById('view-created').textContent  = this.dataset.created   || '�';
             const desc = (this.dataset.desc || '').trim();
             document.getElementById('view-desc').textContent = desc !== '' ? desc : 'No description provided.';
+
+            // Equipment notes
+            const equipmentNotes = (this.dataset.equipmentNotes || '').trim();
+            document.getElementById('view-equipment-notes-wrap').style.display = equipmentNotes ? 'block' : 'none';
+            document.getElementById('view-equipment-notes').textContent = equipmentNotes;
+
+            // Photos & video
+            let viewImages = [];
+            let viewVideos = [];
+            try { viewImages = JSON.parse(this.dataset.images || '[]'); } catch (e) { viewImages = []; }
+            try { viewVideos = JSON.parse(this.dataset.videos || '[]'); } catch (e) { viewVideos = []; }
+            const imagesWrap = document.getElementById('view-media-images');
+            const videoWrap  = document.getElementById('view-media-video');
+            imagesWrap.innerHTML = viewImages.map(src =>
+                '<img src="' + src + '" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">'
+            ).join('');
+            videoWrap.innerHTML = viewVideos.length
+                ? '<video src="' + viewVideos[0] + '" controls style="max-width:100%;max-height:220px;border-radius:8px;"></video>'
+                : '';
+            document.getElementById('view-media-wrap').style.display = (viewImages.length || viewVideos.length) ? 'block' : 'none';
 
             // Pesticide fields
             const pestName  = (this.dataset.pestName  || '').trim();
@@ -2953,6 +3221,9 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
             const requiresInspection = this.dataset.requiresInspection === '1';
             const categoryId = this.dataset.categoryId || '';
             const pricingType = this.dataset.pricingType || 'fixed';
+            const duration = this.dataset.duration || '';
+            const durationUnit = this.dataset.durationUnit || 'hour';
+            const equipmentNotes = this.dataset.equipmentNotes || '';
             let equipmentIds = [];
             try { equipmentIds = JSON.parse(this.dataset.equipmentIds || '[]'); } catch (e) { equipmentIds = []; }
             let equipmentQty = {};
@@ -2968,6 +3239,9 @@ This agreement is validated by the Provider e-signature below and Seeker confirm
             document.getElementById('edit_pesticide_notes').value   = pestNotes;
             document.getElementById('edit_category').value = categoryId;
             document.getElementById('edit_pricing_type').value = pricingType;
+            document.getElementById('edit_duration').value = duration;
+            document.getElementById('edit_duration_unit').value = durationUnit;
+            document.getElementById('edit_equipment_notes').value = equipmentNotes;
             document.getElementById('edit_requires_inspection').checked = requiresInspection;
             onPricingTypeChange('edit');
             const editStaffSelect = document.getElementById('edit_assigned_staff_id');

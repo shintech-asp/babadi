@@ -1,6 +1,73 @@
 <?php
 // config/config.php
 
+// ── Manual access gate (kill-switch) ──────────────────────────────────────
+// Checked before anything else — no DB connection, no session, so it works
+// even if the database is unreachable or config below is broken. See
+// config/access_gate.php for the two flags this reads; that file only ever
+// changes via direct server file access (SSH/FTP/file manager), never
+// through any page or endpoint in this app.
+require_once __DIR__ . '/access_gate.php';
+if (SITE_LOCKED_PAYMENT || SITE_LOCKED_MAINTENANCE) {
+    $__isApiRequest = strpos($_SERVER['REQUEST_URI'] ?? '', '/api/') !== false;
+    $__lockTitle = SITE_LOCKED_PAYMENT ? 'Account Suspended' : 'Under Maintenance';
+    $__lockMessage = SITE_LOCKED_PAYMENT
+        ? 'This service has been temporarily suspended. Please settle your account with your developer to restore access.'
+        : "We're performing scheduled maintenance. Please check back shortly.";
+
+    http_response_code(503);
+
+    if ($__isApiRequest) {
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => false, 'error' => $__lockMessage, 'locked' => true]);
+        exit();
+    }
+
+    header('Content-Type: text/html; charset=UTF-8');
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+        . '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        . '<title>' . htmlspecialchars($__lockTitle) . '</title>'
+        . '<style>
+            * { margin:0; padding:0; box-sizing:border-box; }
+            body {
+                font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+                background: linear-gradient(135deg, #1a1f3a 0%, #2c3e7a 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+            }
+            .card {
+                background: #fff;
+                border-radius: 20px;
+                max-width: 440px;
+                width: 100%;
+                padding: 44px 34px;
+                text-align: center;
+                box-shadow: 0 24px 64px rgba(0,0,0,.35);
+            }
+            .icon {
+                width: 72px; height: 72px;
+                background: #1A1F3A;
+                border-radius: 18px;
+                display: flex; align-items: center; justify-content: center;
+                margin: 0 auto 22px;
+                font-size: 34px;
+            }
+            h1 { color:#1A1F3A; font-size: 22px; margin-bottom: 12px; }
+            p { color:#718096; font-size: 14px; line-height: 1.6; }
+        </style>
+        </head><body>
+        <div class="card">
+            <div class="icon">🔒</div>
+            <h1>' . htmlspecialchars($__lockTitle) . '</h1>
+            <p>' . htmlspecialchars($__lockMessage) . '</p>
+        </div>
+        </body></html>';
+    exit();
+}
+
 // php.ini's date.timezone is set to Europe/Berlin (XAMPP default), but this
 // app is Philippines-only (Cavite-only addresses) and MySQL's server clock
 // runs on the OS's actual timezone (Asia/Manila). Left mismatched, PHP's

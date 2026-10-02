@@ -14,6 +14,15 @@ $price        = req_inp('price', 'Price');
 $pricing_type = req_inp('pricing_type', 'Pricing type');
 $category_id  = req_inp('category_id', 'Category');
 $is_emergency = (bool)inp('is_emergency', false);
+$equipment_notes = trim((string) inp('equipment_notes', ''));
+$duration     = trim((string) inp('duration', ''));
+$duration_unit = trim((string) inp('duration_unit', 'hour'));
+if (!in_array($duration_unit, ['minute', 'hour', 'day'], true)) {
+    $duration_unit = 'hour';
+}
+if ($duration === '' || !ctype_digit($duration) || (int)$duration <= 0) {
+    fail('A valid duration is required.');
+}
 
 if (!is_numeric($price) || (float)$price <= 0) {
     fail('Price must be a positive number.');
@@ -47,9 +56,11 @@ if (!$catStmt->fetch()) {
 $stmt = $pdo->prepare(
     'INSERT INTO services
         (provider_id, service_name, description, price, pricing_type, category_id,
+         equipment_notes, duration, duration_unit,
          is_emergency_available, requires_inspection, status, created_at)
      VALUES
         (:provider_id, :service_name, :description, :price, :pricing_type, :category_id,
+         :equipment_notes, :duration, :duration_unit,
          :is_emergency, :requires_inspection, :status, NOW())'
 );
 
@@ -60,9 +71,17 @@ $stmt->execute([
     ':price'       => (float)$price,
     ':pricing_type'=> $pricing_type,
     ':category_id' => (int)$category_id,
+    ':equipment_notes' => $equipment_notes !== '' ? $equipment_notes : null,
+    ':duration'    => (int)$duration,
+    ':duration_unit' => $duration_unit,
     ':is_emergency'=> $is_emergency ? 1 : 0,
     ':requires_inspection' => $requires_inspection ? 1 : 0,
-    ':status'      => 'active',
+    // Starts inactive (draft) — same fix as provider/services.php and the
+    // mobile provider app's listings/store.php: previously instant-live and
+    // bookable the moment CRM staff saved it, regardless of whether details
+    // were actually finished. update.php already supports flipping this to
+    // 'active' once ready.
+    ':status'      => 'inactive',
 ]);
 
 $newId = (int)$pdo->lastInsertId();

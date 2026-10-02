@@ -39,6 +39,7 @@ if (!$listing) {
 }
 
 $listing['images'] = json_decode($listing['images'] ?? '[]', true) ?: [];
+$listing['videos'] = json_decode($listing['videos'] ?? '[]', true) ?: [];
 
 $upd = $db->prepare("UPDATE services SET views_count = views_count + 1 WHERE id = :id");
 $upd->execute([':id' => $id]);

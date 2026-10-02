@@ -30,6 +30,11 @@ if (isset($_GET['activated'])) {
     $success = 'Your Pro subscription is now active!' . ($exp ? ' Expires ' . date('M j, Y', strtotime($exp)) . '.' : '');
 }
 
+if (isset($_GET['trial_started'])) {
+    $exp = $_GET['exp'] ?? null;
+    $success = 'Your free trial is now active!' . ($exp ? ' Full Pro access until ' . date('M j, Y', strtotime($exp)) . '.' : '');
+}
+
 if (isset($_GET['cancelled'])) $error = 'Payment cancelled. No charge was made.';
 
 // ── POST: Cancel pending ──────────────────────────────────────────────────
@@ -44,6 +49,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_pending'])) {
             )->execute([':p' => $pid]);
             $success = 'Pending payment cancelled. You can start a new subscription below.';
         } catch (Exception $e) { $error = 'Could not cancel. Please try again.'; }
+    }
+}
+
+// ── POST: Start free trial ──────────────────────────────────────────────────
+// True no-payment trial — no PayMongo checkout at all. Eligibility is
+// "this provider has never had ANY subscription row before" (trial or
+// paid), which also naturally caps it at one trial ever: once this INSERT
+// runs, the count is no longer 0. getProviderTier() (portal-tier.php)
+// needs zero changes — it only checks status/plan_id/expires_at, so a
+// trial row with status='active' and a real plan_id is indistinguishable
+// from a paid one as far as feature-gating goes.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['start_trial'])) {
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        $error = 'Invalid request token.';
+    } else {
+        $countStmt = $db->prepare("SELECT COUNT(*) FROM provider_subscriptions WHERE provider_id = ?");
+        $countStmt->execute([$pid]);
+        $everHadSub = (int)$countStmt->fetchColumn();
+        $trialPlan = safeRow_sub($db, "SELECT * FROM subscription_plans WHERE is_active=1 ORDER BY id ASC LIMIT 1");
+        if ($everHadSub > 0) {
+            $error = 'You are not eligible for a free trial — a trial is only available for brand-new accounts.';
+        } elseif (!$trialPlan) {
+            $error = 'No active plan found. Contact admin.';
+        } else {
+            try {
+                $db->prepare(
+                    "INSERT INTO provider_subscriptions (provider_id, plan_id, plan, billing_cycle, status, is_trial, amount, started_at, expires_at, created_at)
+                     VALUES (:pid, :planid, 'pro', 'monthly', 'active', 1, 0, NOW(), DATE_ADD(NOW(), INTERVAL 1 MONTH), NOW())"
+                )->execute([':pid' => $pid, ':planid' => (int)$trialPlan['id']]);
+                header('Location: subscriptions.php?trial_started=1&exp=' . urlencode(date('Y-m-d H:i:s', strtotime('+1 month'))));
+                exit;
+            } catch (Exception $e) {
+                $error = 'Could not start your free trial. Please try again.';
+            }
+        }
     }
 }
 
@@ -152,6 +192,10 @@ $history = safeAll_sub($db,
     "SELECT * FROM provider_subscriptions WHERE provider_id=:p AND plan_id IS NOT NULL ORDER BY created_at DESC LIMIT 20",
     [':p' => $pid]
 );
+
+// Trial-eligible = never had any subscription row before (trial or paid).
+$everHadSubForDisplay = (int)safeRow_sub($db, "SELECT COUNT(*) AS c FROM provider_subscriptions WHERE provider_id=:p", [':p' => $pid])['c'];
+$trial_eligible = $everHadSubForDisplay === 0;
 
 $monthly = (float)($plan['monthly_price'] ?? 500);
 $yearly  = (float)($plan['yearly_price']  ?? 5000);
@@ -323,6 +367,23 @@ tbody tr:last-child td{border-bottom:none}
         ?>
     </span>
 </div>
+
+<?php if ($trial_eligible): ?>
+<div class="tier-current" style="border-color:var(--pro);background:linear-gradient(135deg,#eef2ff,#f5f3ff);">
+    <div class="tier-icon paid"><i class="fas fa-gift"></i></div>
+    <div class="tier-info">
+        <h3>Try Pro free for 1 month</h3>
+        <p>Full HR, Finance, and CRM access &mdash; no payment required, no card needed.</p>
+    </div>
+    <form method="POST" style="margin-left:auto;">
+        <input type="hidden" name="start_trial" value="1">
+        <input type="hidden" name="csrf_token" value="<?= generateCSRFToken() ?>">
+        <button type="submit" class="btn-plan btn-pro" style="width:auto;padding:10px 20px;">
+            <i class="fas fa-gift"></i> Start Free Trial
+        </button>
+    </form>
+</div>
+<?php endif; ?>
 
 <!-- Plan cards -->
 <div class="plan-grid">
